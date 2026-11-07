@@ -1,0 +1,5 @@
+-e .
+dt-extensions-sdk[cli]==1.11.3
+pytest==9.2.0
+snmpsim==1.2.2
+pysmi==2.0.0
