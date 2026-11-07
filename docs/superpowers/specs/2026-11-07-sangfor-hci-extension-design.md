@@ -337,12 +337,13 @@ These are design-time estimates. Hardware series counts depend on how many CPUs,
 | Q1 | Are `diskread`, `diskwrite`, `netin` and `netout` per-second rates or cumulative counters, and in which unit? | Reported as gauges named without units. The unit is set in metadata after validation. |
 | Q2 | Datastore `status`: hex bit masks or binary-digit notation? | Hex masks as written in the spec. |
 | Q3 | SNMP value encoding: strings or integers, and the ratio scale. | Parse with regex `([0-9.]+)`. The OIDs the Zabbix template multiplies by 100 (host CPU, memory and disk use rate, datastore use rate) are marked as ratios in `oids.py` and converted to percent. All other OIDs are taken as-is. |
-| Q4 | Fan and RAID status string values. | Change-from-baseline rule (§5.2). |
+| Q4 | Fan and RAID status string values. | Known tokens first (ok/normal/optimal → OK; failed/degraded/error → not OK); unknown strings use the change-from-baseline rule and are reported by the validation kit. |
 | Q5 | Which SNMP versions answer on the target HCI release, and whether the v2c community is fixed. | Default v3, with v2c `sangfopub` allowed. |
 | Q6 | Ticket lifetime. | Re-login on 401, and proactively every 10 minutes. |
 | Q7 | Minimum Managed cluster version for Python extensions, generic topology and screens. | `minDynatraceVersion: "1.285"`. |
 | Q8 | Is the alarm `status` field "active vs resolved"? | One-shot events with a 15-minute timeout. |
 | Q9 | Does the 2022 API spec still match current HCI releases (6.8 to 6.11)? | Code against the spec. Missing fields are tolerated (§8). |
+| Q10 | Are SNMP filesystem sizes GB (10⁹) or GiB (1024³)? | GiB. |
 
 ## 12. Risks
 
