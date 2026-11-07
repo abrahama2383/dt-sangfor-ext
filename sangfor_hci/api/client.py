@@ -43,6 +43,7 @@ RETRY_BACKOFF_SECONDS = (1.0, 3.0)
 LOGIN_BACKOFF_SECONDS = (300.0, 600.0, 1200.0, 2400.0, 3600.0)
 # Ticket POST failures in which the server cannot have judged the password: they keep their own reason.
 SERVER_SIDE_LOGIN_REASONS = ("timeout", "tls", "unreachable")
+PASSWORD_NOT_SENT_REASONS = ("tls", "unreachable")
 
 
 class SangforApiError(Exception):
@@ -165,7 +166,10 @@ class SangforApiClient:
             data = self._post_ticket(modulus)
         except SangforApiError as exc:
             exc.during_login = True
-            if exc.reason == "auth":
+            # Back off whenever the password may have reached the HCI (auth, 5xx, read timeout): any of
+            # these can count as a failed login toward an account lockout. Only a connection that never
+            # formed (unreachable) or failed its TLS handshake carried no password, so it may retry next cycle.
+            if exc.reason not in PASSWORD_NOT_SENT_REASONS:
                 self._start_login_back_off(str(exc))
             raise
         self._ticket = str(data["ticket"])

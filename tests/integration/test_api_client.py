@@ -257,6 +257,31 @@ def test_server_side_login_failures_keep_their_reason_and_are_not_resent(ticket,
     assert sleeps == []
 
 
+@pytest.mark.parametrize(
+    "ticket, backs_off",
+    [
+        ((503, b"<html>bad gateway</html>"), True),  # the password reached the HCI: it may count as a failed login
+        (requests.exceptions.ReadTimeout("read timed out"), True),
+        (requests.exceptions.ConnectTimeout("connect timed out"), False),  # never connected: no password sent
+        (requests.exceptions.ConnectionError("refused"), False),
+        (requests.exceptions.SSLError("bad cert"), False),
+    ],
+    ids=["5xx", "read-timeout", "connect-timeout", "refused", "tls"],
+)
+def test_login_backs_off_whenever_the_password_may_have_been_delivered(ticket, backs_off):
+    session = LoginSession(ticket)
+    now = [1000.0]
+    client = _login_client(session, now)
+    _raises(client.login)
+    now[0] += 60  # the next polling cycle
+    error = _raises(client.login)
+    if backs_off:
+        assert session.posts == 1
+        assert "login suppressed" in str(error)
+    else:
+        assert session.posts == 2
+
+
 def test_failed_login_suppresses_logins_until_the_back_off_expires():
     session = LoginSession()
     now = [1000.0]

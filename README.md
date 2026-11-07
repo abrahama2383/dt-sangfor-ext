@@ -79,7 +79,9 @@ reason `tls`, fix or reissue the HCI certificate. Turn verification off only as 
   (`reason=unreachable`) and, in `both` mode, SNMP still delivers host CPU and memory within the same cycle.
 - **Read timeouts and HTTP 5xx** on a data request are retried twice (1 s, then 3 s). The worst case per request is
   3 × the request timeout + 4 s; after that only that endpoint is skipped. A login that fails this way is not
-  resent and aborts the API path for that cycle, without the back-off.
+  resent and starts the same back-off as a wrong password: the password reached the HCI, which may have counted
+  it as a failed login. Only a login whose connection never formed (unreachable) or failed TLS is tried again in the
+  next cycle, because no password was sent.
 - **Other network errors** (`reason=network`) and unexpected errors (`reason=unexpected`) are reported by class
   name only; SNMP still runs.
 
