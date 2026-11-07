@@ -24,11 +24,13 @@ class SangforHciExtension(Extension):
         if not enabled:
             self.logger.warning("No feature sets are enabled; only self-monitoring metrics will be reported")
         problems = []
-        for raw in self.activation_config.get("endpoints", []):
+        self._config_warning = ""
+        for number, raw in enumerate(self.activation_config.get("endpoints", []), 1):
             try:
                 config = parse_endpoint(raw)
-            except ConfigError as exc:
-                problems.append(str(exc))
+            except ConfigError as exc:  # ConfigError messages never quote a secret
+                label = str(raw.get("cluster_name") or f"#{number}") if isinstance(raw, dict) else f"#{number}"
+                problems.append(f"endpoint '{label}': {exc}")
                 continue
             runner = ClusterRunner(config, enabled)
             self._runners.append(runner)
@@ -39,7 +41,10 @@ class SangforHciExtension(Extension):
         if not self._runners:
             return Status(StatusValue.INVALID_CONFIG_ERROR, "; ".join(problems) or "no endpoints configured")
         if problems:
-            self.logger.warning("Ignored invalid endpoints: %s", "; ".join(problems))
+            self._config_warning = "ignored invalid endpoints: " + "; ".join(problems)
+            self.logger.warning(self._config_warning)
+            # The SDK only acts on an error status from initialize(), so every cycle status repeats this warning.
+            return Status(StatusValue.WARNING, self._config_warning)
         return None
 
     def _run_cycle(self, runner: ClusterRunner) -> Status:
@@ -49,8 +54,13 @@ class SangforHciExtension(Extension):
             return Status(StatusValue.WARNING, f"{name}: previous cycle still running")
         emit_metrics(self, result.metrics)
         emit_events(self, result.events)
+        messages = []
         if result.problems:
-            return Status(StatusValue.WARNING, f"{name}: " + "; ".join(result.problems[:5]))
+            messages.append(f"{name}: " + "; ".join(result.problems[:5]))
+        if getattr(self, "_config_warning", ""):
+            messages.append(self._config_warning)
+        if messages:
+            return Status(StatusValue.WARNING, " | ".join(messages))
         return Status(StatusValue.OK)
 
     def on_shutdown(self):

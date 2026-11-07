@@ -8,6 +8,7 @@ from ..snmp import oids
 OK_TOKENS = {"ok", "normal", "optimal", "good", "online", "healthy", "1"}
 BAD_TOKENS = {"fail", "failed", "failure", "error", "fault", "faulty", "degraded", "offline", "critical", "abnormal", "bad", "0"}
 GIB = 1024**3
+MAX_UNKNOWN_VALUES = 100  # kept for diagnostics only; bounded against a node that reports free text
 
 
 class StatusBaseline:
@@ -24,7 +25,8 @@ class StatusBaseline:
             return True
         if token in BAD_TOKENS:
             return False
-        self.unknown_values.add(token)
+        if len(self.unknown_values) < MAX_UNKNOWN_VALUES:
+            self.unknown_values.add(token)
         return token == first
 
 

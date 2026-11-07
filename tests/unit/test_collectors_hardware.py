@@ -65,3 +65,10 @@ def test_snmp_host_metrics():
     metrics = hardware.snmp_host_metrics("sim", "10.0.0.11", "node-a", scalars)
     assert {m.key: m.value for m in metrics} == {"host.cpu.usage": 12.0, "host.memory.usage": 58.0}
     assert hardware.snmp_host_metrics("sim", "10.0.0.11", "node-a", {}) == []
+
+
+def test_status_baseline_unknown_values_are_capped():
+    baseline = hardware.StatusBaseline()
+    for i in range(500):
+        baseline.is_ok(("10.0.0.11", f"fan:FAN{i}"), f"weird-{i}")
+    assert len(baseline.unknown_values) == 100

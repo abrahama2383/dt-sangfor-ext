@@ -36,3 +36,16 @@ def test_emit_events_maps_types_and_timeout():
         "entity_selector": 'type("sangfor_hci:cluster"),entityName.equals("sim")',
         "properties": {"a": "b"},
     }
+
+
+def test_emit_metrics_sanitizes_dimension_values():
+    fake = FakeExtension()
+    dims = {"sangfor.vm.name": 'a"b\\c\nd\te\x00f\x7fg', "sangfor.vm.group": "x" * 300, "sangfor.cluster": "sim"}
+    emit_metrics(fake, [Metric("vm.cpu.usage", 1.0, dims)])
+    sent = fake.metrics[0][2]
+    assert sent["sangfor.cluster"] == "sim"
+    name = sent["sangfor.vm.name"]
+    assert not any(ch in name for ch in ('"', "\\", "\n", "\t", "\x00", "\x7f")), name
+    assert name.startswith("a") and name.endswith("g") and len(name) == 13
+    assert sent["sangfor.vm.group"] == "x" * 250
+    assert dims["sangfor.vm.name"].startswith('a"b')  # the caller's dict is not changed
