@@ -1,0 +1,75 @@
+{
+  "types": {
+    "dynatrace.datasource.python:sangfor_hci-endpoint": {
+      "type": "object",
+      "displayName": "Sangfor HCI cluster",
+      "summaryPattern": "{cluster_name} ({mode})",
+      "properties": {
+        "cluster_name": {"displayName": "Cluster name", "description": "Unique name for this Sangfor cluster in Dynatrace. Used as the entity identity; do not change it later.", "type": "text", "nullable": false, "default": "", "constraints": [{"type": "LENGTH", "minLength": 1, "maxLength": 100}]},
+        "mode": {"displayName": "Collection mode", "type": {"$ref": "#/enums/mode"}, "nullable": false, "default": "both"},
+        "interval_seconds": {"displayName": "Polling interval (seconds)", "type": "integer", "nullable": false, "default": 60, "constraints": [{"type": "RANGE", "minimum": 10, "maximum": 3600}]},
+        "vm_interval_seconds": {"displayName": "VM polling interval (seconds)", "description": "VM metrics dominate ingest volume (DDU). Must be at least the polling interval.", "type": "integer", "nullable": false, "default": 300, "constraints": [{"type": "RANGE", "minimum": 10, "maximum": 86400}]},
+        "timeout_seconds": {"displayName": "Request timeout (seconds)", "type": "integer", "nullable": false, "default": 10, "constraints": [{"type": "RANGE", "minimum": 1, "maximum": 120}]},
+        "api_url": {"displayName": "Sangfor API URL", "description": "For example https://10.0.0.10 (cluster VIP). Required for the API and both modes.", "type": "text", "nullable": false, "default": ""},
+        "api_username": {"displayName": "API user name", "description": "A read-only Sangfor account is recommended.", "type": "text", "nullable": false, "default": ""},
+        "api_password": {"displayName": "API password", "type": "secret", "nullable": false, "default": ""},
+        "api_verify_tls": {"displayName": "Verify TLS certificate", "type": "boolean", "nullable": false, "default": true},
+        "api_ca_pem": {"displayName": "Custom CA certificate (PEM)", "description": "Trust this CA for a self-signed HCI certificate instead of turning verification off.", "type": "text", "subType": "multiline", "nullable": false, "default": ""},
+        "snmp_version": {"displayName": "SNMP version", "type": {"$ref": "#/enums/snmpVersion"}, "nullable": false, "default": "v3"},
+        "snmp_port": {"displayName": "SNMP port", "type": "integer", "nullable": false, "default": 161, "constraints": [{"type": "RANGE", "minimum": 1, "maximum": 65535}]},
+        "snmp_community": {"displayName": "SNMP v2c community", "description": "Empty means sangfopub, the community HCI is reported to use.", "type": "secret", "nullable": false, "default": ""},
+        "snmp_v3_user": {"displayName": "SNMP v3 user", "type": "text", "nullable": false, "default": ""},
+        "snmp_v3_auth_protocol": {"displayName": "SNMP v3 authentication protocol", "type": {"$ref": "#/enums/authProtocol"}, "nullable": false, "default": "SHA"},
+        "snmp_v3_auth_key": {"displayName": "SNMP v3 authentication key", "type": "secret", "nullable": false, "default": ""},
+        "snmp_v3_priv_protocol": {"displayName": "SNMP v3 privacy protocol", "type": {"$ref": "#/enums/privProtocol"}, "nullable": false, "default": "AES128"},
+        "snmp_v3_priv_key": {"displayName": "SNMP v3 privacy key", "type": "secret", "nullable": false, "default": ""},
+        "snmp_v3_context_name": {"displayName": "SNMP v3 context name", "description": "Usually empty on a real HCI.", "type": "text", "nullable": false, "default": ""},
+        "snmp_nodes": {"displayName": "SNMP nodes", "description": "One entry per HCI node: IP, or IP=ADDRESS:PORT when it must be polled elsewhere. Empty in both mode means: use the host IPs from the API.", "type": "list", "items": {"type": "text"}, "nullable": false, "minItems": 0, "maxItems": 64}
+      }
+    },
+    "pythonRemote": {
+      "type": "object",
+      "properties": {
+        "endpoints": {
+          "displayName": "Sangfor HCI clusters",
+          "type": "list",
+          "items": {"type": {"$ref": "#/types/dynatrace.datasource.python:sangfor_hci-endpoint"}},
+          "nullable": false,
+          "minItems": 1,
+          "maxItems": 100,
+          "metaData": {"addItemButton": "Add cluster"}
+        }
+      }
+    }
+  },
+  "enums": {
+    "mode": {"type": "enum", "displayName": "Mode", "items": [
+      {"value": "both", "displayName": "REST API and SNMP"},
+      {"value": "api", "displayName": "REST API only"},
+      {"value": "snmp", "displayName": "SNMP only"}]},
+    "snmpVersion": {"type": "enum", "displayName": "SNMP version", "items": [
+      {"value": "v3", "displayName": "SNMP v3"},
+      {"value": "v2c", "displayName": "SNMP v2c"}]},
+    "authProtocol": {"type": "enum", "displayName": "Authentication protocol", "items": [
+      {"value": "SHA", "displayName": "SHA"},
+      {"value": "SHA256", "displayName": "SHA-256"},
+      {"value": "MD5", "displayName": "MD5"}]},
+    "privProtocol": {"type": "enum", "displayName": "Privacy protocol", "items": [
+      {"value": "AES128", "displayName": "AES-128"},
+      {"value": "AES256", "displayName": "AES-256"},
+      {"value": "DES", "displayName": "DES"},
+      {"value": "NONE", "displayName": "None (authNoPriv)"}]}
+  },
+  "dynatrace": "1",
+  "description": "Sangfor HCI monitoring configuration",
+  "schemaId": "python-extension.activation",
+  "displayName": "Sangfor HCI monitoring configuration",
+  "ownerProductManagement": "dynatrace",
+  "ownerDevelopment": "dynatrace",
+  "maturity": "GENERAL_AVAILABILITY",
+  "allowedScopes": ["tenant"],
+  "multiObject": false,
+  "properties": {
+    "pythonRemote": {"displayName": "Python Remote Extension", "type": {"$ref": "#/types/pythonRemote"}}
+  }
+}

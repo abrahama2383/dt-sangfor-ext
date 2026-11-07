@@ -1,0 +1,558 @@
+name: custom:sangfor-hci
+version: 0.1.0
+minDynatraceVersion: "1.285"
+author:
+  name: Rifqi Fitriady
+
+python:
+  runtime:
+    module: sangfor_hci
+    version:
+      min: "3.10"
+  activation:
+    remote:
+      path: activationSchema.json
+  featureSets:
+    - featureSet: cluster
+      metrics:
+        - key: sangfor.hci.cluster.cpu.usage
+        - key: sangfor.hci.cluster.memory.usage
+        - key: sangfor.hci.cluster.storage.usage
+        - key: sangfor.hci.cluster.storage.used
+        - key: sangfor.hci.cluster.storage.total
+        - key: sangfor.hci.cluster.vms
+        - key: sangfor.hci.cluster.hosts
+    - featureSet: host
+      metrics:
+        - key: sangfor.hci.host.cpu.usage
+        - key: sangfor.hci.host.memory.usage
+        - key: sangfor.hci.host.io.usage
+        - key: sangfor.hci.host.online
+        - key: sangfor.hci.host.alarm
+        - key: sangfor.hci.host.uptime
+        - key: sangfor.hci.host.vms.running
+    - featureSet: vm
+      metrics:
+        - key: sangfor.hci.vm.cpu.usage
+        - key: sangfor.hci.vm.memory.usage
+        - key: sangfor.hci.vm.disk.used
+        - key: sangfor.hci.vm.disk.read
+        - key: sangfor.hci.vm.disk.write
+        - key: sangfor.hci.vm.net.in
+        - key: sangfor.hci.vm.net.out
+        - key: sangfor.hci.vm.running
+    - featureSet: datastore
+      metrics:
+        - key: sangfor.hci.datastore.total
+        - key: sangfor.hci.datastore.available
+        - key: sangfor.hci.datastore.usage
+        - key: sangfor.hci.datastore.read.iops
+        - key: sangfor.hci.datastore.write.iops
+        - key: sangfor.hci.datastore.read.throughput
+        - key: sangfor.hci.datastore.write.throughput
+        - key: sangfor.hci.datastore.online
+        - key: sangfor.hci.datastore.partial_access
+        - key: sangfor.hci.datastore.capacity_alert
+    - featureSet: hardware
+      metrics:
+        - key: sangfor.hci.hw.disk.usage
+        - key: sangfor.hci.hw.cpu.temperature
+        - key: sangfor.hci.hw.fan.speed
+        - key: sangfor.hci.hw.fan.ok
+        - key: sangfor.hci.hw.raid.ok
+        - key: sangfor.hci.hw.ssd.life
+        - key: sangfor.hci.hw.fs.size
+        - key: sangfor.hci.hw.fs.used
+        - key: sangfor.hci.hw.fs.available
+        - key: sangfor.hci.hw.fs.usage
+        - key: sangfor.hci.hw.optical.rx.power
+        - key: sangfor.hci.hw.optical.tx.power
+
+metrics:
+  - key: sangfor.hci.cluster.cpu.usage
+    metadata: {displayName: Cluster CPU usage, unit: Percent}
+  - key: sangfor.hci.cluster.memory.usage
+    metadata: {displayName: Cluster memory usage, unit: Percent}
+  - key: sangfor.hci.cluster.storage.usage
+    metadata: {displayName: Cluster storage usage, unit: Percent}
+  - key: sangfor.hci.cluster.storage.used
+    metadata: {displayName: Cluster storage used, unit: Byte}
+  - key: sangfor.hci.cluster.storage.total
+    metadata: {displayName: Cluster storage total, unit: Byte}
+  - key: sangfor.hci.cluster.vms
+    metadata: {displayName: Cluster VMs by state, unit: Count}
+  - key: sangfor.hci.cluster.hosts
+    metadata: {displayName: Cluster hosts by state, unit: Count}
+  - key: sangfor.hci.host.cpu.usage
+    metadata: {displayName: Host CPU usage, unit: Percent}
+  - key: sangfor.hci.host.memory.usage
+    metadata: {displayName: Host memory usage, unit: Percent}
+  - key: sangfor.hci.host.io.usage
+    metadata: {displayName: Host IO usage, unit: Percent}
+  - key: sangfor.hci.host.online
+    metadata: {displayName: Host online (1 = online), unit: Unspecified}
+  - key: sangfor.hci.host.alarm
+    metadata: {displayName: Host has active alarm (1 = yes), unit: Unspecified}
+  - key: sangfor.hci.host.uptime
+    metadata: {displayName: Host uptime, unit: Second}
+  - key: sangfor.hci.host.vms.running
+    metadata: {displayName: Host running VMs, unit: Count}
+  - key: sangfor.hci.vm.cpu.usage
+    metadata: {displayName: VM CPU usage, unit: Percent}
+  - key: sangfor.hci.vm.memory.usage
+    metadata: {displayName: VM memory usage, unit: Percent}
+  - key: sangfor.hci.vm.disk.used
+    metadata: {displayName: VM disk used, unit: Byte}
+  - key: sangfor.hci.vm.disk.read
+    metadata: {displayName: VM disk read (as reported by Sangfor), unit: Unspecified}
+  - key: sangfor.hci.vm.disk.write
+    metadata: {displayName: VM disk write (as reported by Sangfor), unit: Unspecified}
+  - key: sangfor.hci.vm.net.in
+    metadata: {displayName: VM network in (as reported by Sangfor), unit: Unspecified}
+  - key: sangfor.hci.vm.net.out
+    metadata: {displayName: VM network out (as reported by Sangfor), unit: Unspecified}
+  - key: sangfor.hci.vm.running
+    metadata: {displayName: VM running (1 = running), unit: Unspecified}
+  - key: sangfor.hci.datastore.total
+    metadata: {displayName: Datastore capacity, unit: Byte}
+  - key: sangfor.hci.datastore.available
+    metadata: {displayName: Datastore available, unit: Byte}
+  - key: sangfor.hci.datastore.usage
+    metadata: {displayName: Datastore usage, unit: Percent}
+  - key: sangfor.hci.datastore.read.iops
+    metadata: {displayName: Datastore read IOPS, unit: PerSecond}
+  - key: sangfor.hci.datastore.write.iops
+    metadata: {displayName: Datastore write IOPS, unit: PerSecond}
+  - key: sangfor.hci.datastore.read.throughput
+    metadata: {displayName: Datastore read throughput, unit: BytePerSecond}
+  - key: sangfor.hci.datastore.write.throughput
+    metadata: {displayName: Datastore write throughput, unit: BytePerSecond}
+  - key: sangfor.hci.datastore.online
+    metadata: {displayName: Datastore online (1 = online), unit: Unspecified}
+  - key: sangfor.hci.datastore.partial_access
+    metadata: {displayName: Datastore not reachable from some hosts (1 = yes), unit: Unspecified}
+  - key: sangfor.hci.datastore.capacity_alert
+    metadata: {displayName: Datastore over 90% (1 = yes), unit: Unspecified}
+  - key: sangfor.hci.hw.disk.usage
+    metadata: {displayName: Node disk usage, unit: Percent}
+  - key: sangfor.hci.hw.cpu.temperature
+    metadata: {displayName: CPU temperature (°C), unit: Unspecified}
+  - key: sangfor.hci.hw.fan.speed
+    metadata: {displayName: Fan speed (rpm), unit: Unspecified}
+  - key: sangfor.hci.hw.fan.ok
+    metadata: {displayName: Fan healthy (1 = OK), unit: Unspecified}
+  - key: sangfor.hci.hw.raid.ok
+    metadata: {displayName: RAID healthy (1 = OK), unit: Unspecified}
+  - key: sangfor.hci.hw.ssd.life
+    metadata: {displayName: SSD remaining life, unit: Percent}
+  - key: sangfor.hci.hw.fs.size
+    metadata: {displayName: Filesystem size, unit: Byte}
+  - key: sangfor.hci.hw.fs.used
+    metadata: {displayName: Filesystem used, unit: Byte}
+  - key: sangfor.hci.hw.fs.available
+    metadata: {displayName: Filesystem available, unit: Byte}
+  - key: sangfor.hci.hw.fs.usage
+    metadata: {displayName: Filesystem usage, unit: Percent}
+  - key: sangfor.hci.hw.optical.rx.power
+    metadata: {displayName: Optical Rx power (dBm), unit: Unspecified}
+  - key: sangfor.hci.hw.optical.tx.power
+    metadata: {displayName: Optical Tx power (dBm), unit: Unspecified}
+  - key: sangfor.hci.ext.poll.duration
+    metadata: {displayName: Sangfor extension poll duration, unit: MilliSecond}
+  - key: sangfor.hci.ext.poll.errors
+    metadata: {displayName: Sangfor extension poll errors, unit: Count}
+
+topology:
+  types:
+    - name: sangfor_hci:cluster
+      displayName: Sangfor HCI cluster
+      enabled: true
+      rules:
+        - idPattern: sangfor_hci_cluster_{sangfor.cluster}
+          instanceNamePattern: "{sangfor.cluster}"
+          iconPattern: cluster
+          sources:
+            - sourceType: Metrics
+              condition: $prefix(sangfor.hci.cluster.)
+            - sourceType: Metrics
+              condition: $prefix(sangfor.hci.host.)
+            - sourceType: Metrics
+              condition: $prefix(sangfor.hci.hw.)
+            - sourceType: Metrics
+              condition: $prefix(sangfor.hci.datastore.)
+            - sourceType: Metrics
+              condition: $prefix(sangfor.hci.ext.)
+          requiredDimensions:
+            - key: sangfor.cluster
+          attributes: []
+    - name: sangfor_hci:host
+      displayName: Sangfor HCI host
+      enabled: true
+      rules:
+        - idPattern: sangfor_hci_host_{sangfor.cluster}_{sangfor.host.ip}
+          instanceNamePattern: "{sangfor.cluster} / {sangfor.host.name}"
+          iconPattern: host
+          sources:
+            - sourceType: Metrics
+              condition: $prefix(sangfor.hci.host.)
+            - sourceType: Metrics
+              condition: $prefix(sangfor.hci.hw.)
+          requiredDimensions:
+            - key: sangfor.cluster
+            - key: sangfor.host.ip
+          attributes:
+            - key: ip_address
+              displayName: IP address
+              pattern: "{sangfor.host.ip}"
+            - key: sangfor_version
+              displayName: Sangfor version
+              pattern: "{sangfor.version}"
+    - name: sangfor_hci:vm
+      displayName: Sangfor HCI VM
+      enabled: true
+      rules:
+        - idPattern: sangfor_hci_vm_{sangfor.cluster}_{sangfor.vm.id}
+          instanceNamePattern: "{sangfor.cluster} / {sangfor.vm.name} ({sangfor.vm.id})"
+          iconPattern: virtualmachine
+          sources:
+            - sourceType: Metrics
+              condition: $prefix(sangfor.hci.vm.)
+          requiredDimensions:
+            - key: sangfor.cluster
+            - key: sangfor.vm.id
+          attributes:
+            - key: vm_os
+              displayName: Operating system
+              pattern: "{sangfor.vm.os}"
+            - key: vm_group
+              displayName: Group
+              pattern: "{sangfor.vm.group}"
+            - key: vm_ha
+              displayName: HA enabled
+              pattern: "{sangfor.vm.ha}"
+    - name: sangfor_hci:datastore
+      displayName: Sangfor HCI datastore
+      enabled: true
+      rules:
+        - idPattern: sangfor_hci_datastore_{sangfor.cluster}_{sangfor.datastore.id}
+          instanceNamePattern: "{sangfor.cluster} / {sangfor.datastore.name}"
+          iconPattern: database
+          sources:
+            - sourceType: Metrics
+              condition: $prefix(sangfor.hci.datastore.)
+          requiredDimensions:
+            - key: sangfor.cluster
+            - key: sangfor.datastore.id
+          attributes:
+            - key: datastore_type
+              displayName: Type
+              pattern: "{sangfor.datastore.type}"
+            - key: datastore_shared
+              displayName: Shared
+              pattern: "{sangfor.datastore.shared}"
+  relationships:
+    - fromType: sangfor_hci:host
+      toType: sangfor_hci:cluster
+      typeOfRelation: CHILD_OF
+      enabled: true
+      sources:
+        - sourceType: Metrics
+          condition: $prefix(sangfor.hci.host.)
+    - fromType: sangfor_hci:vm
+      toType: sangfor_hci:host
+      typeOfRelation: RUNS_ON
+      enabled: true
+      sources:
+        - sourceType: Metrics
+          condition: $prefix(sangfor.hci.vm.)
+    - fromType: sangfor_hci:datastore
+      toType: sangfor_hci:cluster
+      typeOfRelation: CHILD_OF
+      enabled: true
+      sources:
+        - sourceType: Metrics
+          condition: $prefix(sangfor.hci.datastore.)
+
+screens:
+  - entityType: sangfor_hci:cluster
+    detailsSettings:
+      staticContent: {showProblems: true, showProperties: true, showTags: true, showGlobalFilter: true, showAddTag: true}
+      layout:
+        autoGenerate: false
+        cards:
+          - {key: cluster_usage, type: CHART_GROUP}
+          - {key: cluster_hosts, type: ENTITIES_LIST}
+          - {key: cluster_datastores, type: ENTITIES_LIST}
+    listSettings:
+      staticContent: {showGlobalFilter: true}
+      layout:
+        autoGenerate: false
+        cards:
+          - {key: cluster_list, type: ENTITIES_LIST}
+    chartsCards:
+      - key: cluster_usage
+        displayName: Cluster usage
+        numberOfVisibleCharts: 4
+        charts:
+          - displayName: CPU usage (%)
+            visualizationType: GRAPH_CHART
+            graphChartConfig:
+              metrics:
+                - metricSelector: sangfor.hci.cluster.cpu.usage:splitBy("dt.entity.sangfor_hci:cluster")
+          - displayName: Memory usage (%)
+            visualizationType: GRAPH_CHART
+            graphChartConfig:
+              metrics:
+                - metricSelector: sangfor.hci.cluster.memory.usage:splitBy("dt.entity.sangfor_hci:cluster")
+          - displayName: Storage usage (%)
+            visualizationType: GRAPH_CHART
+            graphChartConfig:
+              metrics:
+                - metricSelector: sangfor.hci.cluster.storage.usage:splitBy("dt.entity.sangfor_hci:cluster")
+          - displayName: VMs by state
+            visualizationType: GRAPH_CHART
+            graphChartConfig:
+              metrics:
+                - metricSelector: sangfor.hci.cluster.vms:splitBy("state")
+    entitiesListCards:
+      - key: cluster_list
+        displayName: Sangfor HCI clusters
+        entitySelectorTemplate: type("sangfor_hci:cluster")
+        pageSize: 10
+        displayCharts: false
+        enableDetailsExpandability: true
+        numberOfVisibleCharts: 0
+        charts: []
+      - key: cluster_hosts
+        displayName: Hosts
+        entitySelectorTemplate: type("sangfor_hci:host"),fromRelationships.isChildOf($(entityConditions))
+        pageSize: 10
+        displayCharts: true
+        enableDetailsExpandability: true
+        numberOfVisibleCharts: 2
+        charts:
+          - displayName: CPU usage (%)
+            visualizationType: GRAPH_CHART
+            graphChartConfig:
+              metrics:
+                - metricSelector: sangfor.hci.host.cpu.usage:splitBy("dt.entity.sangfor_hci:host")
+          - displayName: Memory usage (%)
+            visualizationType: GRAPH_CHART
+            graphChartConfig:
+              metrics:
+                - metricSelector: sangfor.hci.host.memory.usage:splitBy("dt.entity.sangfor_hci:host")
+      - key: cluster_datastores
+        displayName: Datastores
+        entitySelectorTemplate: type("sangfor_hci:datastore"),fromRelationships.isChildOf($(entityConditions))
+        pageSize: 10
+        displayCharts: true
+        enableDetailsExpandability: true
+        numberOfVisibleCharts: 1
+        charts:
+          - displayName: Usage (%)
+            visualizationType: GRAPH_CHART
+            graphChartConfig:
+              metrics:
+                - metricSelector: sangfor.hci.datastore.usage:splitBy("dt.entity.sangfor_hci:datastore")
+  - entityType: sangfor_hci:host
+    detailsSettings:
+      staticContent: {showProblems: true, showProperties: true, showTags: true, showGlobalFilter: true, showAddTag: true}
+      layout:
+        autoGenerate: false
+        cards:
+          - {key: host_usage, type: CHART_GROUP}
+          - {key: host_hardware, type: CHART_GROUP}
+          - {key: host_vms, type: ENTITIES_LIST}
+    listSettings:
+      staticContent: {showGlobalFilter: true}
+      layout:
+        autoGenerate: false
+        cards:
+          - {key: host_list, type: ENTITIES_LIST}
+    chartsCards:
+      - key: host_usage
+        displayName: Utilization
+        numberOfVisibleCharts: 3
+        charts:
+          - displayName: CPU usage (%)
+            visualizationType: GRAPH_CHART
+            graphChartConfig:
+              metrics:
+                - metricSelector: sangfor.hci.host.cpu.usage:splitBy("dt.entity.sangfor_hci:host")
+          - displayName: Memory usage (%)
+            visualizationType: GRAPH_CHART
+            graphChartConfig:
+              metrics:
+                - metricSelector: sangfor.hci.host.memory.usage:splitBy("dt.entity.sangfor_hci:host")
+          - displayName: IO usage (%)
+            visualizationType: GRAPH_CHART
+            graphChartConfig:
+              metrics:
+                - metricSelector: sangfor.hci.host.io.usage:splitBy("dt.entity.sangfor_hci:host")
+      - key: host_hardware
+        displayName: Hardware health (SNMP)
+        numberOfVisibleCharts: 4
+        charts:
+          - displayName: CPU temperature (°C)
+            visualizationType: GRAPH_CHART
+            graphChartConfig:
+              metrics:
+                - metricSelector: sangfor.hci.hw.cpu.temperature:splitBy("sangfor.cpu")
+          - displayName: Fan healthy (1 = OK)
+            visualizationType: GRAPH_CHART
+            graphChartConfig:
+              metrics:
+                - metricSelector: sangfor.hci.hw.fan.ok:splitBy("sangfor.fan")
+          - displayName: RAID healthy (1 = OK)
+            visualizationType: GRAPH_CHART
+            graphChartConfig:
+              metrics:
+                - metricSelector: sangfor.hci.hw.raid.ok:splitBy("sangfor.raid")
+          - displayName: SSD remaining life (%)
+            visualizationType: GRAPH_CHART
+            graphChartConfig:
+              metrics:
+                - metricSelector: sangfor.hci.hw.ssd.life:splitBy("sangfor.ssd")
+    entitiesListCards:
+      - key: host_list
+        displayName: Sangfor HCI hosts
+        entitySelectorTemplate: type("sangfor_hci:host")
+        pageSize: 15
+        displayCharts: true
+        enableDetailsExpandability: true
+        numberOfVisibleCharts: 2
+        charts:
+          - displayName: CPU usage (%)
+            visualizationType: GRAPH_CHART
+            graphChartConfig:
+              metrics:
+                - metricSelector: sangfor.hci.host.cpu.usage:splitBy("dt.entity.sangfor_hci:host")
+          - displayName: Memory usage (%)
+            visualizationType: GRAPH_CHART
+            graphChartConfig:
+              metrics:
+                - metricSelector: sangfor.hci.host.memory.usage:splitBy("dt.entity.sangfor_hci:host")
+      - key: host_vms
+        displayName: VMs on this host
+        entitySelectorTemplate: type("sangfor_hci:vm"),fromRelationships.runsOn($(entityConditions))
+        pageSize: 10
+        displayCharts: true
+        enableDetailsExpandability: true
+        numberOfVisibleCharts: 1
+        charts:
+          - displayName: CPU usage (%)
+            visualizationType: GRAPH_CHART
+            graphChartConfig:
+              metrics:
+                - metricSelector: sangfor.hci.vm.cpu.usage:splitBy("dt.entity.sangfor_hci:vm")
+  - entityType: sangfor_hci:vm
+    detailsSettings:
+      staticContent: {showProblems: true, showProperties: true, showTags: true, showGlobalFilter: true, showAddTag: true}
+      layout:
+        autoGenerate: false
+        cards:
+          - {key: vm_usage, type: CHART_GROUP}
+    listSettings:
+      staticContent: {showGlobalFilter: true}
+      layout:
+        autoGenerate: false
+        cards:
+          - {key: vm_list, type: ENTITIES_LIST}
+    chartsCards:
+      - key: vm_usage
+        displayName: Utilization
+        numberOfVisibleCharts: 4
+        charts:
+          - displayName: CPU usage (%)
+            visualizationType: GRAPH_CHART
+            graphChartConfig:
+              metrics:
+                - metricSelector: sangfor.hci.vm.cpu.usage:splitBy("dt.entity.sangfor_hci:vm")
+          - displayName: Memory usage (%)
+            visualizationType: GRAPH_CHART
+            graphChartConfig:
+              metrics:
+                - metricSelector: sangfor.hci.vm.memory.usage:splitBy("dt.entity.sangfor_hci:vm")
+          - displayName: Disk read / write
+            visualizationType: GRAPH_CHART
+            graphChartConfig:
+              metrics:
+                - metricSelector: sangfor.hci.vm.disk.read:splitBy("dt.entity.sangfor_hci:vm")
+                - metricSelector: sangfor.hci.vm.disk.write:splitBy("dt.entity.sangfor_hci:vm")
+          - displayName: Network in / out
+            visualizationType: GRAPH_CHART
+            graphChartConfig:
+              metrics:
+                - metricSelector: sangfor.hci.vm.net.in:splitBy("dt.entity.sangfor_hci:vm")
+                - metricSelector: sangfor.hci.vm.net.out:splitBy("dt.entity.sangfor_hci:vm")
+    entitiesListCards:
+      - key: vm_list
+        displayName: Sangfor HCI VMs
+        entitySelectorTemplate: type("sangfor_hci:vm")
+        pageSize: 20
+        displayCharts: true
+        enableDetailsExpandability: true
+        numberOfVisibleCharts: 2
+        charts:
+          - displayName: CPU usage (%)
+            visualizationType: GRAPH_CHART
+            graphChartConfig:
+              metrics:
+                - metricSelector: sangfor.hci.vm.cpu.usage:splitBy("dt.entity.sangfor_hci:vm")
+          - displayName: Memory usage (%)
+            visualizationType: GRAPH_CHART
+            graphChartConfig:
+              metrics:
+                - metricSelector: sangfor.hci.vm.memory.usage:splitBy("dt.entity.sangfor_hci:vm")
+  - entityType: sangfor_hci:datastore
+    detailsSettings:
+      staticContent: {showProblems: true, showProperties: true, showTags: true, showGlobalFilter: true, showAddTag: true}
+      layout:
+        autoGenerate: false
+        cards:
+          - {key: datastore_usage, type: CHART_GROUP}
+    listSettings:
+      staticContent: {showGlobalFilter: true}
+      layout:
+        autoGenerate: false
+        cards:
+          - {key: datastore_list, type: ENTITIES_LIST}
+    chartsCards:
+      - key: datastore_usage
+        displayName: Capacity and performance
+        numberOfVisibleCharts: 3
+        charts:
+          - displayName: Usage (%)
+            visualizationType: GRAPH_CHART
+            graphChartConfig:
+              metrics:
+                - metricSelector: sangfor.hci.datastore.usage:splitBy("dt.entity.sangfor_hci:datastore")
+          - displayName: IOPS (read / write)
+            visualizationType: GRAPH_CHART
+            graphChartConfig:
+              metrics:
+                - metricSelector: sangfor.hci.datastore.read.iops:splitBy("dt.entity.sangfor_hci:datastore")
+                - metricSelector: sangfor.hci.datastore.write.iops:splitBy("dt.entity.sangfor_hci:datastore")
+          - displayName: Throughput (read / write)
+            visualizationType: GRAPH_CHART
+            graphChartConfig:
+              metrics:
+                - metricSelector: sangfor.hci.datastore.read.throughput:splitBy("dt.entity.sangfor_hci:datastore")
+                - metricSelector: sangfor.hci.datastore.write.throughput:splitBy("dt.entity.sangfor_hci:datastore")
+    entitiesListCards:
+      - key: datastore_list
+        displayName: Sangfor HCI datastores
+        entitySelectorTemplate: type("sangfor_hci:datastore")
+        pageSize: 15
+        displayCharts: true
+        enableDetailsExpandability: true
+        numberOfVisibleCharts: 1
+        charts:
+          - displayName: Usage (%)
+            visualizationType: GRAPH_CHART
+            graphChartConfig:
+              metrics:
+                - metricSelector: sangfor.hci.datastore.usage:splitBy("dt.entity.sangfor_hci:datastore")
+
+dashboards:
+  - path: dashboards/sangfor-hci-overview.json

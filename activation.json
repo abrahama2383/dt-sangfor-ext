@@ -1,0 +1,33 @@
+{
+  "enabled": true,
+  "description": "Sangfor HCI simulator",
+  "version": "0.1.0",
+  "activationContext": "REMOTE",
+  "featureSets": ["cluster", "host", "vm", "datastore", "hardware"],
+  "pythonRemote": {
+    "endpoints": [
+      {
+        "cluster_name": "sim-cluster",
+        "mode": "both",
+        "interval_seconds": 60,
+        "vm_interval_seconds": 300,
+        "timeout_seconds": 5,
+        "api_url": "https://127.0.0.1:8443",
+        "api_username": "dtmon",
+        "api_password": "dtmon-pass",
+        "api_verify_tls": false,
+        "api_ca_pem": "",
+        "snmp_version": "v3",
+        "snmp_port": 161,
+        "snmp_community": "",
+        "snmp_v3_user": "dtmon",
+        "snmp_v3_auth_protocol": "SHA",
+        "snmp_v3_auth_key": "dtmon-auth-key",
+        "snmp_v3_priv_protocol": "AES128",
+        "snmp_v3_priv_key": "dtmon-priv-key",
+        "snmp_v3_context_name": "sangfopub",
+        "snmp_nodes": ["10.0.0.11=127.0.0.1:11161", "10.0.0.12=127.0.0.1:11162"]
+      }
+    ]
+  }
+}
