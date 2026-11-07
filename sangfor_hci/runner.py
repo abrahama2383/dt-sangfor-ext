@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+import traceback
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Callable
@@ -227,6 +228,8 @@ class ClusterRunner:
         except Exception as exc:  # noqa: BLE001 - one bad node (e.g. unresolvable address) must not end the cycle
             # Only the type name: the message of an exception we did not raise could carry a community or key.
             self._record_error(result, "snmp", node.host_ip, "unexpected", f"unexpected {type(exc).__name__}")
+            # The frames (file, line, code) are safe to log and make a bug debuggable; the message is not.
+            log.debug("snmp %s traceback:\n%s", node.host_ip, "".join(traceback.format_tb(exc.__traceback__)))
             return []
         finally:
             self._record_duration(result, "snmp", node.host_ip, started)

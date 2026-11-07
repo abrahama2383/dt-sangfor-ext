@@ -195,7 +195,7 @@ The OK/not-OK string values for fan and RAID status are unknown. Until the valid
 | Key | Unit | Dimensions |
 |---|---|---|
 | `ext.poll.duration` | ms | `source` (api/snmp), `target` (endpoint or node) |
-| `ext.poll.errors` | errors in this cycle (gauge) | `source`, `target`, `reason` (auth / timeout / http / parse / snmp) |
+| `ext.poll.errors` | errors in this cycle (gauge) | `source`, `target`, `reason` (auth / tls / forbidden / timeout / http / parse / snmp / unexpected) |
 
 ### 5.3 Overlap rule in `both` mode
 

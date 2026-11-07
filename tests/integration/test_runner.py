@@ -1,8 +1,10 @@
+import threading
+
 import pytest
 
 from sangfor_hci.api.client import SangforApiClient, SangforApiError
 from sangfor_hci.config import SnmpNode, parse_endpoint
-from sangfor_hci.runner import FEATURE_SETS, ClusterRunner
+from sangfor_hci.runner import FEATURE_SETS, ClusterRunner, CycleResult, _ApiAborted, default_snmp_factory
 
 NODES = ["10.0.0.11=127.0.0.1:11161", "10.0.0.12=127.0.0.1:11162"]
 
@@ -183,14 +185,21 @@ class _WrappedApi:
 
 def test_unexpected_snmp_error_on_one_node_keeps_the_cycle(mock_api, snmp_agents):
     base, _ = mock_api
-    config = make_config(base, snmp_nodes=["10.0.0.11=127.0.0.1:11161", "10.0.0.12=no-such-host.invalid"])
-    result = make_runner(config).run_cycle()
+    config = make_config(base)
+
+    def snmp_factory(cfg, node):
+        if node.host_ip == "10.0.0.12":
+            raise ValueError("community=sangfopub")  # an exception we did not raise, carrying a secret
+        return default_snmp_factory(cfg, node)
+
+    result = ClusterRunner(config, set(FEATURE_SETS), api_factory=fast_api, snmp_factory=snmp_factory).run_cycle()
     assert any(m.key == "hw.fan.ok" and m.dimensions["sangfor.host.ip"] == "10.0.0.11" for m in result.metrics)
     assert "cluster.cpu.usage" in keys(result)
     assert any(
         m.key == "ext.poll.errors" and m.dimensions["target"] == "10.0.0.12" and m.dimensions["reason"] == "unexpected"
         for m in result.metrics
     )
+    assert not any("sangfopub" in problem for problem in result.problems)
 
 
 def test_abort_after_host_list_keeps_api_authoritative_for_hosts(mock_api, snmp_agents):
@@ -220,4 +229,33 @@ def test_abort_inside_node_info_stops_the_api_path(mock_api):
     runner.run_cycle()
     for later in ("/vapi/json/vtpstorage/storelist", "/vapi/json/cluster/vms", "/vapi/json/log/alert/all"):
         assert later not in paths
-    assert len([p for p in paths if p.startswith("/vapi/json/nodes/")]) <= 2
+
+
+class _GatedNodeApi:
+    """node_info for h1 fails with auth at once; every other host blocks briefly, keeping its worker busy."""
+
+    def __init__(self):
+        self.ids = []
+        self._gate = threading.Event()
+
+    def get(self, path, params=None):
+        host_id = path.split("/")[4]
+        self.ids.append(host_id)
+        if host_id == "h1":
+            raise SangforApiError("auth", "denied")
+        self._gate.wait(0.5)
+        return {}
+
+    def close(self):
+        pass
+
+
+def test_abort_inside_node_info_does_not_send_queued_requests():
+    api = _GatedNodeApi()
+    config = make_config("https://127.0.0.1:1", mode="api")
+    runner = ClusterRunner(config, set(FEATURE_SETS), api_factory=lambda c: api)
+    runner._hosts = {f"h{i}": None for i in range(8)}
+    with pytest.raises(_ApiAborted):
+        runner._fetch_node_infos(CycleResult())
+    # 4 workers: h0-h3 are in flight when h1 aborts; h4-h7 must never be sent (each would retry a failed login).
+    assert set(api.ids) <= {"h0", "h1", "h2", "h3"}
