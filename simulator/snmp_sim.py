@@ -25,7 +25,8 @@ def responder_path() -> str:
     return str(Path(sys.executable).parent / "snmpsim-command-responder")
 
 
-def start_agent(dataset: str, port: int) -> subprocess.Popen:
+def start_agent(dataset: str, port: int, log_path: Path | None = None) -> subprocess.Popen:
+    """Starts one agent. With log_path, its output goes there, so a failed start can be diagnosed."""
     command = [
         responder_path(),
         f"--data-dir={DATA / dataset}",
@@ -36,7 +37,10 @@ def start_agent(dataset: str, port: int) -> subprocess.Popen:
         f"--v3-priv-key={V3_PRIV_KEY}",
         "--v3-priv-proto=AES",
     ]
-    return subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if log_path is None:
+        return subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    with open(log_path, "wb") as log:  # the child keeps its own copy of the descriptor
+        return subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT)
 
 
 def load_snmprec(dataset: str) -> dict[str, str]:
