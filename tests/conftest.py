@@ -34,33 +34,44 @@ def mock_api_tls(tmp_path):
 
 
 import time
+from pathlib import Path
 
 from simulator.snmp_sim import start_agent
 
 SNMP_PORTS = {"node-a": 11161, "node-b": 11162, "bare": 11163}
 
 
-def _wait_for_agent(port: int, deadline_seconds: float = 30.0) -> None:
+def _wait_for_agent(port: int, process=None, log_path=None, deadline_seconds: float = 30.0) -> None:
     from sangfor_hci.snmp.client import SnmpClient, SnmpError, SnmpTarget
     from sangfor_hci.snmp.oids import SYS_DESCR
 
     client = SnmpClient(SnmpTarget("127.0.0.1", port, "v2c", timeout=1.0, community="sangfopub"), retries=0)
     end = time.monotonic() + deadline_seconds
     while time.monotonic() < end:
+        if process is not None and process.poll() is not None:
+            break  # the agent exited: waiting longer cannot help
         try:
             if client.get([SYS_DESCR]):
                 return
         except SnmpError:
             continue
-    raise RuntimeError(f"snmpsim on UDP {port} did not answer within {deadline_seconds} s")
+    state = "still running" if process is None or process.poll() is None else f"exited with code {process.returncode}"
+    tail = ""
+    if log_path is not None and Path(log_path).exists():
+        tail = "\n--- snmpsim log (last 40 lines) ---\n" + "\n".join(
+            Path(log_path).read_text(encoding="utf-8", errors="replace").splitlines()[-40:]
+        )
+    raise RuntimeError(f"snmpsim on UDP {port} did not answer within {deadline_seconds} s ({state}){tail}")
 
 
 @pytest.fixture(scope="session")
-def snmp_agents():
-    processes = [start_agent(name, port) for name, port in SNMP_PORTS.items()]
+def snmp_agents(tmp_path_factory):
+    logs = tmp_path_factory.mktemp("snmpsim")
+    started = [(start_agent(name, port, logs / f"{name}.log"), port, logs / f"{name}.log") for name, port in SNMP_PORTS.items()]
+    processes = [process for process, _, _ in started]
     try:
-        for port in SNMP_PORTS.values():
-            _wait_for_agent(port)
+        for process, port, log_path in started:
+            _wait_for_agent(port, process, log_path)
         yield dict(SNMP_PORTS)
     finally:
         for process in processes:

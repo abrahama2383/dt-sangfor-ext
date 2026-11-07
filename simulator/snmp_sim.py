@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -25,10 +26,18 @@ def responder_path() -> str:
     return str(Path(sys.executable).parent / "snmpsim-command-responder")
 
 
-def start_agent(dataset: str, port: int) -> subprocess.Popen:
+def start_agent(dataset: str, port: int, log_path: Path | None = None) -> subprocess.Popen:
+    """Starts one agent. With log_path, its output goes there, so a failed start can be diagnosed.
+
+    Each agent gets its own index cache: agents started together otherwise race to create snmpsim's shared
+    default (/tmp/snmpsim), and the loser exits with "File exists".
+    """
+    cache_dir = Path(tempfile.gettempdir()) / f"snmpsim-{dataset}-{port}"
+    cache_dir.mkdir(parents=True, exist_ok=True)
     command = [
         responder_path(),
         f"--data-dir={DATA / dataset}",
+        f"--cache-dir={cache_dir}",
         f"--agent-udpv4-endpoint=127.0.0.1:{port}",
         f"--v3-user={V3_USER}",
         f"--v3-auth-key={V3_AUTH_KEY}",
@@ -36,7 +45,10 @@ def start_agent(dataset: str, port: int) -> subprocess.Popen:
         f"--v3-priv-key={V3_PRIV_KEY}",
         "--v3-priv-proto=AES",
     ]
-    return subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if log_path is None:
+        return subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    with open(log_path, "wb") as log:  # the child keeps its own copy of the descriptor
+        return subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT)
 
 
 def load_snmprec(dataset: str) -> dict[str, str]:
