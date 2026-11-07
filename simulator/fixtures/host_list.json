@@ -1,0 +1,10 @@
+{
+  "success": 1,
+  "data": [
+    {"alert": "0", "master": 1, "cpu_ratio": "0.12", "status": 1, "ip": "10.0.0.11", "name": "node-a",
+     "urgent": 0, "io_ratio": "0.03", "mem_ratio": "0.58", "id": "host-00e0ec000a11", "type": "h"},
+    {"alert": "1", "master": 0, "cpu_ratio": "0.31", "status": 1, "ip": "10.0.0.12", "name": "node-b",
+     "urgent": 0, "io_ratio": "0.10", "mem_ratio": "0.64", "id": "host-00e0ec000b12", "type": "h"}
+  ],
+  "total": 2
+}

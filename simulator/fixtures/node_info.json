@@ -1,0 +1,6 @@
+{
+  "host-00e0ec000a11": {"control_role": 2, "status": "on", "ip": "10.0.0.11", "hardware_type": "Sangfor aServer",
+                        "os_version": "SANGFOR aCloud 6.10.0_R2 Build20251020", "uptime": 10511969, "running_vms": 2},
+  "host-00e0ec000b12": {"control_role": 1, "status": "on", "ip": "10.0.0.12", "hardware_type": "Sangfor aServer",
+                        "os_version": "SANGFOR aCloud 6.10.0_R2 Build20251020", "uptime": 864000, "running_vms": 0}
+}

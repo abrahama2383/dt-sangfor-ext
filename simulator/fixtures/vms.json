@@ -1,0 +1,19 @@
+{
+  "success": 1,
+  "data": [
+    {"owner": "admin@vtp", "name": "grp-app", "type": "group", "id": "61394df39524", "vm_num": 2, "data": [
+      {"vmid": 1774086864344, "name": "app-01", "vmtype": "vm", "status": "running", "host": "host-00e0ec000a11",
+       "hostname": "10.0.0.11", "groupname": "grp-app", "osname": "linux-oracle", "cpus": 2, "cpu_ratio": "0.03",
+       "mem_ratio": "0.14", "mem_used": 2422394880, "mem_total": 17179869184, "disk_used": "7301444403",
+       "disk_total": 85899345920, "diskread": 0, "diskwrite": 9830, "netin": 8148, "netout": 0, "ha": 1, "alert": "0"},
+      {"vmid": 1774086864345, "name": "app-02", "vmtype": "vm", "status": "running", "host": "host-00e0ec000a11",
+       "hostname": "10.0.0.11", "groupname": "grp-app", "osname": "linux-ubuntu", "cpus": 4, "cpu_ratio": "0.20",
+       "mem_ratio": "0.50", "mem_used": 4294967296, "mem_total": 8589934592, "disk_used": "1000000000",
+       "disk_total": 53687091200, "diskread": 2048, "diskwrite": 4096, "netin": 100, "netout": 200, "ha": 0, "alert": "0"}
+    ]},
+    {"vmid": 2000000000001, "name": "db-01", "vmtype": "vm", "status": "stopped", "host": "host-00e0ec000b12",
+     "hostname": "10.0.0.12", "groupname": "", "osname": "windows", "cpus": 8, "cpu_ratio": "0", "mem_ratio": "0",
+     "mem_used": 0, "mem_total": 34359738368, "disk_used": "5000000000", "disk_total": 214748364800,
+     "diskread": 0, "diskwrite": 0, "netin": 0, "netout": 0, "ha": 1, "alert": "0"}
+  ]
+}
