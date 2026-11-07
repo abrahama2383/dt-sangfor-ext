@@ -40,18 +40,23 @@ def _pump(stream, lines: queue.Queue) -> None:
 
 def _stop_group(process: subprocess.Popen) -> None:
     """SIGTERM the whole process group, then SIGKILL it if it has not exited in time."""
+    # macOS can answer killpg with EPERM when the group's members are exiting or are zombies: treat it like
+    # "already gone" for the group, and fall back to signalling dt-sdk itself.
     try:
         os.killpg(process.pid, signal.SIGTERM)
     except ProcessLookupError:
         return
+    except PermissionError:
+        process.terminate()
     try:
         process.wait(timeout=STOP_GRACE_SECONDS)
     except subprocess.TimeoutExpired:
         pass
     try:
         os.killpg(process.pid, signal.SIGKILL)  # also reaches a child that outlived dt-sdk
-    except ProcessLookupError:
-        pass
+    except (ProcessLookupError, PermissionError):
+        if process.poll() is None:
+            process.kill()
     process.wait(timeout=STOP_GRACE_SECONDS)
 
 

@@ -175,12 +175,13 @@ class ClusterRunner:
         aborted = threading.Event()
 
         def fetch_one(host_id: str) -> object:
-            # Once one request has aborted the API path (auth/TLS/forbidden), queued requests are not sent.
+            # Once one request has aborted the API path (auth/TLS/forbidden) or failed unexpectedly,
+            # queued requests are not sent.
             if aborted.is_set():
                 return None
             try:
                 return self._fetch(result, f"/vapi/json/nodes/{host_id}/info", target=NODE_INFO_TARGET)
-            except _ApiAborted:
+            except Exception:
                 aborted.set()
                 raise
 

@@ -76,6 +76,16 @@ def as_dict(raw: object) -> dict:
     return raw if isinstance(raw, dict) else {}
 
 
+MAX_DIMENSION_VALUE_LENGTH = 250
+# A quote, a backslash or a control character in a value would break the MINT line or the entity selectors.
+_UNSAFE = {ord('"'): "'", ord("\\"): "/", **{c: " " for c in (*range(0x20), *range(0x7F, 0xA0))}}
+
+
+def sanitize_dimension_value(value: object) -> str:
+    """The form a dimension value takes when it is sent, and so the form entity names take."""
+    return str(value).translate(_UNSAFE)[:MAX_DIMENSION_VALUE_LENGTH]
+
+
 def cluster_dims(cluster: str) -> dict[str, str]:
     return {"sangfor.cluster": cluster}
 
@@ -103,15 +113,18 @@ def datastore_dims(cluster: str, ds_id: str, ds_name: str) -> dict[str, str]:
 
 # These must stay identical to instanceNamePattern in extension/extension.yaml.
 def host_display_name(cluster: str, name: str) -> str:
-    return f"{cluster} / {name}"
+    return f"{_s(cluster)} / {_s(name)}"
 
 
 def vm_display_name(cluster: str, vm_name: str, vm_id: str) -> str:
-    return f"{cluster} / {vm_name} ({vm_id})"
+    return f"{_s(cluster)} / {_s(vm_name)} ({_s(vm_id)})"
 
 
 def datastore_display_name(cluster: str, name: str) -> str:
-    return f"{cluster} / {name}"
+    return f"{_s(cluster)} / {_s(name)}"
+
+
+_s = sanitize_dimension_value
 
 
 def entity_selector(entity_type: str, display_name: str) -> str:

@@ -11,8 +11,9 @@ Login attempts and account lockout:
 - The ticket POST is never resent, not even after an HTTP 5xx or a timeout, so the one login is exactly 1 ticket POST
   and cannot add a second failed attempt toward a lockout.
 - If a data endpoint rejects the ticket (HTTP 401/403), the probe logs in again once for that endpoint, records it as
-  failed and moves on to the next one. After two endpoints in a row are rejected it stops calling the API, so a
-  password changed mid-run causes at most 2 more ticket POSTs.
+  failed and moves on to the next one. After two endpoints in a row are rejected it stops calling the API. A failed
+  re-login pauses all logins (the extension's back-off), so a password changed mid-run causes at most 1 more failed
+  ticket POST.
 
 ## Before you run it
 

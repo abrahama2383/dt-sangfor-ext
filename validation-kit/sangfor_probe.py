@@ -374,9 +374,8 @@ def _failed_check(endpoint: str, exc: BaseException, started: float) -> dict:
         check["reason"] = exc.reason
         if exc.error_class:  # e.g. MissingSchema or ConnectTimeout: a class name, never the exception text
             check["error"] = exc.error_class
-        status = re.search(r"\bHTTP (\d{3})\b", str(exc))
-        if status:
-            check["http_status"] = int(status.group(1))
+        if exc.status is not None:  # the status of this request, not one quoted from an earlier failure
+            check["http_status"] = int(exc.status)
     else:
         check["reason"] = "error"
         check["error"] = type(exc).__name__

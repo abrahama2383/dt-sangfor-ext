@@ -43,7 +43,9 @@ RETRY_BACKOFF_SECONDS = (1.0, 3.0)
 LOGIN_BACKOFF_SECONDS = (300.0, 600.0, 1200.0, 2400.0, 3600.0)
 # Ticket POST failures in which the server cannot have judged the password: they keep their own reason.
 SERVER_SIDE_LOGIN_REASONS = ("timeout", "tls", "unreachable")
-PASSWORD_NOT_SENT_REASONS = ("tls", "unreachable")
+# The only transport failure that proves the ticket POST (and the password in it) never left: requests raises
+# ConnectionError and SSLError also when the connection drops after the body was written.
+PASSWORD_NOT_SENT_ERRORS = ("ConnectTimeout",)
 
 
 class SangforApiError(Exception):
@@ -166,10 +168,12 @@ class SangforApiClient:
             data = self._post_ticket(modulus)
         except SangforApiError as exc:
             exc.during_login = True
-            # Back off whenever the password may have reached the HCI (auth, 5xx, read timeout): any of
-            # these can count as a failed login toward an account lockout. Only a connection that never
-            # formed (unreachable) or failed its TLS handshake carried no password, so it may retry next cycle.
-            if exc.reason not in PASSWORD_NOT_SENT_REASONS:
+            # Back off whenever the password may have reached the HCI: a rejection, a 5xx, a read timeout, and
+            # also a connection dropped or a TLS EOF after the body was written. Any of these can count as a
+            # failed login toward an account lockout. Only a connect timeout proves no password was sent. The
+            # public-key GET succeeded over the same connection settings moments before, so pausing logins
+            # after a real outage costs little.
+            if exc.error_class not in PASSWORD_NOT_SENT_ERRORS:
                 self._start_login_back_off(str(exc))
             raise
         self._ticket = str(data["ticket"])
@@ -236,7 +240,9 @@ class SangforApiClient:
                     method, self._base + path, params=params, data=form, headers=headers, timeout=self._timeout
                 )
             except requests.exceptions.SSLError as exc:
-                raise SangforApiError("tls", f"TLS verification failed for {self._base}: {exc}") from exc
+                raise SangforApiError(
+                    "tls", f"TLS verification failed for {self._base}: {exc}", error_class=exc.__class__.__name__
+                ) from exc
             except (requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError) as exc:
                 raise SangforApiError(
                     "unreachable", f"{method} {path} failed: {exc.__class__.__name__}", error_class=exc.__class__.__name__

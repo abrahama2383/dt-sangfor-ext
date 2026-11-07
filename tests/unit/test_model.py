@@ -90,3 +90,15 @@ def test_as_dict():
     assert model.as_dict({"a": 1}) == {"a": 1}
     assert model.as_dict(None) == {}
     assert model.as_dict([1]) == {}
+
+
+def test_display_names_match_the_sanitized_dimension_values():
+    # Alarm events select entities by name; the entity names come from the dimension values emit.py sanitizes.
+    from sangfor_hci.model import host_display_name, sanitize_dimension_value, vm_display_name
+
+    raw = 'db "prod"\\01\tx'
+    clean = sanitize_dimension_value(raw)
+    assert clean == "db 'prod'/01 x"
+    assert host_display_name("c1", raw) == f"c1 / {clean}"
+    assert vm_display_name("c1", raw, "42") == f"c1 / {clean} (42)"
+    assert host_display_name("c1", "x" * 300) == "c1 / " + "x" * 250

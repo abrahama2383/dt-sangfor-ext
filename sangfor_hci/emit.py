@@ -4,16 +4,9 @@ from __future__ import annotations
 
 from dynatrace_extension import DtEventType
 
-from .model import Event, Metric
+from .model import MAX_DIMENSION_VALUE_LENGTH, Event, Metric, sanitize_dimension_value  # noqa: F401 (re-export)
 
 EVENT_TIMEOUT_MINUTES = 15
-MAX_DIMENSION_VALUE_LENGTH = 250
-# A quote, a backslash or a control character in a value would break the MINT line or the entity selectors.
-_UNSAFE = {ord('"'): "'", ord("\\"): "/", **{c: " " for c in (*range(0x20), *range(0x7F, 0xA0))}}
-
-
-def sanitize_dimension_value(value: str) -> str:
-    return str(value).translate(_UNSAFE)[:MAX_DIMENSION_VALUE_LENGTH]
 
 
 def emit_metrics(extension, metrics: list[Metric]) -> None:

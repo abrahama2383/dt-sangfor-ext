@@ -262,11 +262,13 @@ def test_server_side_login_failures_keep_their_reason_and_are_not_resent(ticket,
     [
         ((503, b"<html>bad gateway</html>"), True),  # the password reached the HCI: it may count as a failed login
         (requests.exceptions.ReadTimeout("read timed out"), True),
+        # ConnectionError also covers a connection dropped AFTER the POST body was sent, and SSLError an EOF while
+        # reading the answer: the password may have arrived, so both back off. Only a connect timeout is certain.
+        (requests.exceptions.ConnectionError("connection reset after the request was written"), True),
+        (requests.exceptions.SSLError("EOF occurred in violation of protocol"), True),
         (requests.exceptions.ConnectTimeout("connect timed out"), False),  # never connected: no password sent
-        (requests.exceptions.ConnectionError("refused"), False),
-        (requests.exceptions.SSLError("bad cert"), False),
     ],
-    ids=["5xx", "read-timeout", "connect-timeout", "refused", "tls"],
+    ids=["5xx", "read-timeout", "dropped-after-send", "tls-eof", "connect-timeout"],
 )
 def test_login_backs_off_whenever_the_password_may_have_been_delivered(ticket, backs_off):
     session = LoginSession(ticket)
