@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
 
@@ -12,7 +13,7 @@ ENTITY_HOST = "sangfor_hci:host"
 ENTITY_VM = "sangfor_hci:vm"
 ENTITY_DATASTORE = "sangfor_hci:datastore"
 
-_NUMBER = re.compile(r"-?[0-9]+(?:\.[0-9]+)?")
+_NUMBER = re.compile(r"\s*([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)(?![\d.])")
 
 
 @dataclass(frozen=True)
@@ -49,13 +50,21 @@ class MetricList(list):
 
 
 def parse_number(raw: object) -> float | None:
-    """Sangfor sends numbers as JSON numbers or as strings such as "0.45"."""
+    """Sangfor sends numbers as JSON numbers or as strings such as "0.45" or "52 C".
+
+    The number must start the text (an optional unit may follow). Text such as IPs, versions
+    or words is rejected, and so are NaN and infinity: a missing value is better than a wrong one.
+    """
     if raw is None:
         return None
     if isinstance(raw, (int, float)):
-        return float(raw)
-    match = _NUMBER.search(str(raw))
-    return float(match.group(0)) if match else None
+        value = float(raw)
+    else:
+        match = _NUMBER.match(str(raw))
+        if not match:
+            return None
+        value = float(match.group(1))
+    return value if math.isfinite(value) else None
 
 
 def ratio_to_percent(raw: object) -> float | None:

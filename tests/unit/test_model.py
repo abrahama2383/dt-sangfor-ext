@@ -17,6 +17,19 @@ def test_parse_number_returns_none_for_missing_or_text():
     assert model.parse_number("Optimal") is None
 
 
+def test_parse_number_rejects_misleading_text_and_non_finite():
+    assert model.parse_number(".5") == 0.5
+    assert model.parse_number("1e-5") == 1e-5
+    assert model.parse_number("+7") == 7.0
+    assert model.parse_number(" 42 ") == 42.0
+    assert model.parse_number(False) == 0.0
+    for text in ("10.0.0.11", "6.10.0", "abc-3", "v2.5", "nan", "inf"):
+        assert model.parse_number(text) is None, text
+    assert model.parse_number(float("nan")) is None
+    assert model.parse_number(float("inf")) is None
+    assert model.ratio_to_percent("10.0.0.11") is None
+
+
 def test_ratio_to_percent():
     assert model.ratio_to_percent("0.12") == 12.0
     assert model.ratio_to_percent(0.585) == 58.5
