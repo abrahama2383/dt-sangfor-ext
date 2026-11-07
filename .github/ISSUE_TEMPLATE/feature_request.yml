@@ -1,0 +1,47 @@
+name: Feature request
+description: A metric, event, Sangfor version or configuration option the extension should support.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea. For anything larger than a new metric, we agree on the approach here before code is written.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you cannot see or do today, and why it matters for operating the HCI.
+      placeholder: We cannot see replication lag between the two HCI sites, so a broken replica goes unnoticed for days.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like
+      description: The metric, event or option, and where its data comes from if you know (REST API path or SNMP OID).
+    validations:
+      required: true
+  - type: dropdown
+    id: source
+    attributes:
+      label: Data source
+      options:
+        - Sangfor REST API
+        - SNMP (Sangfor private MIB)
+        - SNMP (standard MIB)
+        - Not sure
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence from a real HCI
+      description: |
+        A redacted validation-kit zip or an excerpt of it helps a lot (see validation-kit/README.md).
+        Never paste unredacted responses, credentials or addresses.
+  - type: checkboxes
+    id: rules
+    attributes:
+      label: Fits the project rules
+      options:
+        - label: It only needs read access to Sangfor (GET requests or SNMP GET/WALK)
+          required: true
