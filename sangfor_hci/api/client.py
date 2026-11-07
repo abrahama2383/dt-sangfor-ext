@@ -41,7 +41,9 @@ UNSAFE_PATH_PARTS = ("..", "//", "?", "#", "%", "\\")
 RSA_EXPONENT = 0x10001
 RETRY_BACKOFF_SECONDS = (1.0, 3.0)
 LOGIN_BACKOFF_SECONDS = (300.0, 600.0, 1200.0, 2400.0, 3600.0)
-# Ticket POST failures in which the server cannot have judged the password: they keep their own reason.
+# Ticket POST failures that keep their own reason instead of becoming "auth" (they still start the back-off
+# unless PASSWORD_NOT_SENT_ERRORS proves nothing was sent). A dropped-after-send POST therefore reads as
+# "unreachable" in its first cycle; later cycles show "login suppressed".
 SERVER_SIDE_LOGIN_REASONS = ("timeout", "tls", "unreachable")
 # The only transport failure that proves the ticket POST (and the password in it) never left: requests raises
 # ConnectionError and SSLError also when the connection drops after the body was written.
