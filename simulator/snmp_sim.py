@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -26,10 +27,17 @@ def responder_path() -> str:
 
 
 def start_agent(dataset: str, port: int, log_path: Path | None = None) -> subprocess.Popen:
-    """Starts one agent. With log_path, its output goes there, so a failed start can be diagnosed."""
+    """Starts one agent. With log_path, its output goes there, so a failed start can be diagnosed.
+
+    Each agent gets its own index cache: agents started together otherwise race to create snmpsim's shared
+    default (/tmp/snmpsim), and the loser exits with "File exists".
+    """
+    cache_dir = Path(tempfile.gettempdir()) / f"snmpsim-{dataset}-{port}"
+    cache_dir.mkdir(parents=True, exist_ok=True)
     command = [
         responder_path(),
         f"--data-dir={DATA / dataset}",
+        f"--cache-dir={cache_dir}",
         f"--agent-udpv4-endpoint=127.0.0.1:{port}",
         f"--v3-user={V3_USER}",
         f"--v3-auth-key={V3_AUTH_KEY}",
