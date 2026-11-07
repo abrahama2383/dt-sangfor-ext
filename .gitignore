@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Extension build output
+dist/
+*.zip
+
+# Signing material and secrets: never commit
+*.pem
+*.key
+*.crt
+*.p12
+secrets/
+.env
+.env.*
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
