@@ -1,12 +1,15 @@
 import json
+import re
 from pathlib import Path
 
 import pytest
 import yaml
 
 from sangfor_hci import model
+from sangfor_hci.collectors import host, vm
 from sangfor_hci.config import parse_endpoint
 from sangfor_hci.runner import FEATURE_SETS, ClusterRunner
+from simulator.mock_api import load_fixtures
 
 ROOT = Path(__file__).resolve().parents[2]
 EXT = yaml.safe_load((ROOT / "extension" / "extension.yaml").read_text(encoding="utf-8"))
@@ -92,3 +95,40 @@ def test_dev_activation_is_valid():
     for endpoint in ACTIVATION["pythonRemote"]["endpoints"]:
         assert set(endpoint) <= set(ACTIVATION_KEYS)
         parse_endpoint(endpoint)
+
+
+def _type(name):
+    return next(t for t in EXT["topology"]["types"] if t["name"] == name)
+
+
+def _placeholders(pattern):
+    return set(re.findall(r"{([^}]+)}", pattern))
+
+
+def test_host_entity_rule_includes_vm_metrics_so_runs_on_is_created():
+    rule = _type(model.ENTITY_HOST)["rules"][0]
+    assert "$prefix(sangfor.hci.vm.)" in [source["condition"] for source in rule["sources"]]
+    runs_on = [r for r in EXT["topology"]["relationships"] if r["typeOfRelation"] == "RUNS_ON"]
+    assert runs_on == [{
+        "fromType": model.ENTITY_VM, "toType": model.ENTITY_HOST, "typeOfRelation": "RUNS_ON", "enabled": True,
+        "sources": [{"sourceType": "Metrics", "condition": "$prefix(sangfor.hci.vm.)"}],
+    }]
+
+
+def test_vm_metrics_carry_every_dimension_the_host_rule_needs_when_the_host_is_known():
+    rule = _type(model.ENTITY_HOST)["rules"][0]
+    needed = (
+        _placeholders(rule["idPattern"])
+        | _placeholders(rule["instanceNamePattern"])
+        | {d["key"] for d in rule["requiredDimensions"]}
+    )
+    fixtures = load_fixtures()
+    hosts = host.index(fixtures["host_list"]["data"])
+    host_lines = host.collect("sim", fixtures["host_list"]["data"], {})
+    host_names = {m.dimensions["sangfor.host.ip"]: _render(rule["instanceNamePattern"], m.dimensions) for m in host_lines}
+    vm_lines = vm.collect("sim", fixtures["vms"]["data"], hosts)
+    assert vm_lines
+    for metric in vm_lines:
+        assert needed <= set(metric.dimensions), (metric.key, needed - set(metric.dimensions))
+        # The VM line must name the host exactly as the host's own lines do, or the host entity would flip names.
+        assert _render(rule["instanceNamePattern"], metric.dimensions) == host_names[metric.dimensions["sangfor.host.ip"]]

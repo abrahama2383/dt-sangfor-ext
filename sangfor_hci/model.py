@@ -84,10 +84,12 @@ def host_dims(cluster: str, ip: str, name: str) -> dict[str, str]:
     return {"sangfor.cluster": cluster, "sangfor.host.ip": ip, "sangfor.host.name": name or ip}
 
 
-def vm_dims(cluster: str, vm_id: str, vm_name: str, host_ip: str) -> dict[str, str]:
+def vm_dims(cluster: str, vm_id: str, vm_name: str, host_ip: str, host_name: str = "") -> dict[str, str]:
+    """With a known host, a VM line also carries the host's identity dimensions (exactly as host_dims builds them),
+    so generic topology can resolve the host entity from the same line and create VM RUNS_ON host."""
     dims = {"sangfor.cluster": cluster, "sangfor.vm.id": vm_id, "sangfor.vm.name": vm_name or vm_id}
     if host_ip:
-        dims["sangfor.host.ip"] = host_ip
+        dims.update(host_dims(cluster, host_ip, host_name))
     return dims
 
 

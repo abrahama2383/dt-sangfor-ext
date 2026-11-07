@@ -28,7 +28,7 @@ def collect(cluster: str, payload: object, hosts: dict[str, HostInfo]) -> list[M
     for item in iter_vms(payload):
         vm_id = str(item["vmid"])
         host = hosts.get(str(item.get("host") or ""))
-        dims = vm_dims(cluster, vm_id, str(item.get("name") or vm_id), host.ip if host else "")
+        dims = vm_dims(cluster, vm_id, str(item.get("name") or vm_id), host.ip if host else "", host.name if host else "")
         if item.get("groupname"):
             dims["sangfor.vm.group"] = str(item["groupname"])
         os_name = item.get("osname") or item.get("ostype")

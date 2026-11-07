@@ -33,6 +33,7 @@ def test_vm_metrics():
         "sangfor.vm.id": "1774086864344",
         "sangfor.vm.name": "app-01",
         "sangfor.host.ip": "10.0.0.11",
+        "sangfor.host.name": "node-a",
         "sangfor.vm.group": "grp-app",
         "sangfor.vm.os": "linux-oracle",
         "sangfor.vm.ha": "true",
@@ -40,12 +41,20 @@ def test_vm_metrics():
     db01 = {m.key: m for m in metrics if m.dimensions["sangfor.vm.name"] == "db-01"}
     assert db01["vm.running"].value == 0.0
     assert db01["vm.running"].dimensions["sangfor.host.ip"] == "10.0.0.12"
+    assert db01["vm.running"].dimensions["sangfor.host.name"] == "node-b"
     assert "sangfor.vm.group" not in db01["vm.running"].dimensions
 
 
 def test_vm_on_unknown_host_has_no_host_dimension():
     metrics = vm.collect("sim", [{"vmid": 5, "name": "orphan", "host": "host-gone", "status": "running"}], HOSTS)
     assert metrics and all("sangfor.host.ip" not in m.dimensions for m in metrics)
+    assert all("sangfor.host.name" not in m.dimensions for m in metrics)
+
+
+def test_vm_on_unnamed_host_uses_the_host_ip_as_name_like_host_dims():
+    hosts = host.index([{"id": "h9", "ip": "10.0.0.99", "status": 1}])
+    metrics = vm.collect("sim", [{"vmid": 5, "name": "v", "host": "h9", "status": "running"}], hosts)
+    assert metrics[0].dimensions["sangfor.host.name"] == "10.0.0.99"
 
 
 def test_alarms_become_events_once():

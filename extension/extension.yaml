@@ -197,6 +197,9 @@ topology:
               condition: $prefix(sangfor.hci.host.)
             - sourceType: Metrics
               condition: $prefix(sangfor.hci.hw.)
+            # VM lines carry the host's ip and name, so a VM line resolves both entities and RUNS_ON can be created.
+            - sourceType: Metrics
+              condition: $prefix(sangfor.hci.vm.)
           requiredDimensions:
             - key: sangfor.cluster
             - key: sangfor.host.ip

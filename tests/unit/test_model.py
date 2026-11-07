@@ -55,13 +55,16 @@ def test_dimension_builders():
         "sangfor.host.name": "node-a",
     }
     assert model.host_dims("sim", "10.0.0.11", "")["sangfor.host.name"] == "10.0.0.11"
-    assert model.vm_dims("sim", "17", "app-01", "10.0.0.11") == {
+    assert model.vm_dims("sim", "17", "app-01", "10.0.0.11", "node-a") == {
         "sangfor.cluster": "sim",
         "sangfor.vm.id": "17",
         "sangfor.vm.name": "app-01",
         "sangfor.host.ip": "10.0.0.11",
+        "sangfor.host.name": "node-a",
     }
+    assert model.vm_dims("sim", "17", "app-01", "10.0.0.11")["sangfor.host.name"] == "10.0.0.11"
     assert "sangfor.host.ip" not in model.vm_dims("sim", "17", "app-01", "")
+    assert "sangfor.host.name" not in model.vm_dims("sim", "17", "app-01", "", "node-a")
     assert model.datastore_dims("sim", "ds1", "local_a") == {
         "sangfor.cluster": "sim",
         "sangfor.datastore.id": "ds1",
