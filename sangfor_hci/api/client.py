@@ -93,8 +93,10 @@ class SangforApiClient:
             raise SangforApiError("parse", "public_key response has no RSA modulus")
         try:
             encrypted = encrypt_password(self._password, modulus)
-        except ValueError as exc:
-            raise SangforApiError("auth", f"cannot encrypt the password with the server key: {exc}") from exc
+        except ValueError as exc:  # UnicodeEncodeError text would quote the offending password character
+            raise SangforApiError(
+                "auth", f"cannot encrypt the password with the server key: {exc.__class__.__name__}"
+            ) from None
         data = self._request(
             "POST", TICKET_PATH, authenticated=False, form={"username": self._username, "password": encrypted}
         )

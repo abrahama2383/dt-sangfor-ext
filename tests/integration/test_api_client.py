@@ -37,6 +37,20 @@ def test_wrong_password_raises_auth(mock_api):
     assert "wrong" not in str(info.value)
 
 
+def test_unencodable_password_is_not_echoed_in_the_error(mock_api):
+    base, state = mock_api
+    client = SangforApiClient(base, "dtmon", "pa\udcffss-secret", sleep=lambda s: None)
+    with pytest.raises(SangforApiError) as info:
+        client.login()
+    message = str(info.value)
+    assert info.value.reason == "auth"
+    assert "UnicodeEncodeError" in message
+    for leaked in ("\udcff", "udcff", "pa\udcffss-secret", "position", "surrogate"):
+        assert leaked not in message.lower(), leaked
+    assert info.value.__cause__ is None
+    assert "POST /vapi/json/access/ticket" not in state.requests
+
+
 def test_paths_outside_allowlist_are_refused_without_a_request(mock_api):
     base, state = mock_api
     client = _client(base)
