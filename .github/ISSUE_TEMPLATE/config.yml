@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/rifqifitriady/dt-sangfor-ext/security/advisories/new
+    about: Please report security problems privately, never in a public issue.
+  - name: Install and configuration guide
+    url: https://github.com/rifqifitriady/dt-sangfor-ext#install-on-dynatrace-managed
+    about: Requirements, signing, upload, configuration, TLS and the login back-off.
+  - name: Contributing guide
+    url: https://github.com/rifqifitriady/dt-sangfor-ext/blob/main/CONTRIBUTING.md
+    about: Setup, project layout, the rules that matter, tests and pull requests.

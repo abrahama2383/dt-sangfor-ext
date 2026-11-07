@@ -1,0 +1,78 @@
+name: Bug report
+description: Something in the Sangfor HCI extension does not work as it should.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. **Security problems do not go here**: report them privately (see SECURITY.md).
+        Before pasting logs or screenshots, remove passwords, communities, SNMP keys, API tokens, IP addresses,
+        hostnames and customer names. Validation-kit output is redacted, but check it before you attach it.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+      placeholder: hw.fan.ok reports 0 for every fan on one node, although the Sangfor console shows them as normal.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Monitoring configuration in `both` mode, SNMP v3
+        2. Wait two cycles
+        3. …
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Extension version
+      description: "`version` in extension/extension.yaml, or the commit if you built from source."
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: hci
+    attributes:
+      label: Sangfor HCI version
+      placeholder: HCI 6.8.0
+  - type: input
+    id: activegate
+    attributes:
+      label: ActiveGate version
+      description: 1.333 or newer runs Python 3.14; older ones Python 3.10.
+      placeholder: 1.333.0
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Collection mode
+      options:
+        - both (the default)
+        - api
+        - snmp
+    validations:
+      required: true
+  - type: dropdown
+    id: snmp
+    attributes:
+      label: SNMP version
+      options:
+        - v3
+        - v2c
+        - not used
+  - type: textarea
+    id: status
+    attributes:
+      label: Extension status and ext.poll.errors
+      description: The status shown for the monitoring configuration, and the `reason` dimension of `ext.poll.errors` if any.
+      render: text
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: The relevant lines from the extension log on the ActiveGate, with secrets and addresses removed.
+      render: text
