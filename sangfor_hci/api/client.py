@@ -31,6 +31,7 @@ ALLOWED_GET_PREFIXES = (
     "/vapi/json/vtpstorage/storelist",
     "/vapi/json/log/alert/all",
 )
+UNSAFE_PATH_PARTS = ("..", "//", "?", "#", "%", "\\")
 RSA_EXPONENT = 0x10001
 RETRY_BACKOFF_SECONDS = (1.0, 3.0)
 
@@ -105,7 +106,7 @@ class SangforApiClient:
         self.login_count += 1
 
     def get(self, path: str, params: dict | None = None) -> object:
-        if not path.startswith(ALLOWED_GET_PREFIXES):
+        if any(part in path for part in UNSAFE_PATH_PARTS) or not path.startswith(ALLOWED_GET_PREFIXES):
             raise SangforApiError("forbidden", f"path is not in the read-only allowlist: {path}")
         with self._login_lock:
             if self._needs_login():
@@ -164,14 +165,21 @@ class SangforApiClient:
 
     @staticmethod
     def _parse(response: requests.Response, method: str, path: str) -> object:
+        code = response.status_code
         try:
             body = response.json()
-        except ValueError as exc:
-            raise SangforApiError("parse", f"{method} {path}: HTTP {response.status_code}, body is not JSON") from exc
-        status = body.get("status") if isinstance(body, dict) else None
-        message = str(body.get("message", "")) if isinstance(body, dict) else ""
-        if response.status_code in (401, 403) or status in (401, 403):
+        except ValueError:
+            body = None
+        if not isinstance(body, dict):
+            body = None
+        status = body.get("status") if body is not None else None
+        message = str(body.get("message", "")) if body is not None else ""
+        if code in (401, 403) or status in (401, 403):
             raise SangforApiError("auth", f"{method} {path}: authentication rejected {message}".strip())
-        if response.status_code >= 400 or not isinstance(body, dict) or body.get("success") != 1:
-            raise SangforApiError("http", f"{method} {path}: HTTP {response.status_code} {message}".strip())
+        if code >= 400:
+            raise SangforApiError("http", f"{method} {path}: HTTP {code} {message}".strip())
+        if body is None:
+            raise SangforApiError("parse", f"{method} {path}: HTTP {code}, body is not JSON")
+        if body.get("success") != 1:
+            raise SangforApiError("http", f"{method} {path}: HTTP {code} {message}".strip())
         return body.get("data")

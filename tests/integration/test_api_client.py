@@ -1,3 +1,4 @@
+import requests
 import pytest
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
@@ -95,3 +96,58 @@ def test_tls_verification(mock_api_tls):
 
     insecure = _client(base, verify_tls=False)
     assert insecure.get("/vapi/json/index/overview")["vm"]["off"] == 1
+
+
+def _response(status, content=b"", content_type="text/html"):
+    resp = requests.Response()
+    resp.status_code = status
+    resp._content = content
+    resp.headers["Content-Type"] = content_type
+    return resp
+
+
+def test_forbidden_dot_segments(mock_api):
+    base, state = mock_api
+    client = _client(base)
+    with pytest.raises(SangforApiError) as info:
+        client.get("/vapi/json/nodes/../cluster/vm/123/status/stop")
+    assert info.value.reason == "forbidden"
+    assert state.requests == []
+
+
+def test_parse_judges_status_before_body():
+    parse = SangforApiClient._parse
+    html = b"<html>proxy</html>"
+    with pytest.raises(SangforApiError) as info:
+        parse(_response(401, html), "GET", "/x")
+    assert info.value.reason == "auth"
+    with pytest.raises(SangforApiError) as info:
+        parse(_response(403, b""), "GET", "/x")
+    assert info.value.reason == "auth"
+    with pytest.raises(SangforApiError) as info:
+        parse(_response(503, html), "GET", "/x")
+    assert info.value.reason == "http"
+    with pytest.raises(SangforApiError) as info:
+        parse(_response(200, html), "GET", "/x")
+    assert info.value.reason == "parse"
+    with pytest.raises(SangforApiError) as info:
+        parse(_response(200, b'{"success": 0, "message": "nope"}', "application/json"), "GET", "/x")
+    assert info.value.reason == "http"
+    assert parse(_response(200, b'{"success": 1, "data": 5}', "application/json"), "GET", "/x") == 5
+
+
+def test_persistent_5xx_retries_then_http():
+    class FakeSession:
+        def request(self, *args, **kwargs):
+            return _response(503, b"<html>bad gateway</html>")
+
+        def close(self):
+            pass
+
+    sleeps = []
+    client = SangforApiClient("https://sangfor.invalid", "u", "p", sleep=sleeps.append)
+    client._session = FakeSession()
+    with pytest.raises(SangforApiError) as info:
+        client._request("GET", "/vapi/json/index/overview", authenticated=False)
+    assert info.value.reason == "http"
+    assert sleeps == [1.0, 3.0]
