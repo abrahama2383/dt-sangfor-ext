@@ -5,6 +5,15 @@ It is read-only. It logs in once (`GET /vapi/json/public_key`, then `POST /vapi/
 requests to six data endpoints (overview, host list, storage list, VMs, alerts, and the info of each host), and
 walks one SNMP subtree on each node you name.
 
+Login attempts and account lockout:
+
+- A failed login (for example a wrong password) is sent once and never retried; the probe then skips the API.
+- The one login can send up to 3 ticket POSTs, but only when the server answers HTTP 5xx or times out. These are
+  server errors, not password failures, so they do not count toward a lockout.
+- If a data endpoint rejects the ticket (HTTP 401/403), the probe logs in again once for that endpoint, records it as
+  failed and moves on to the next one. After two endpoints in a row are rejected it stops calling the API, so a
+  password changed mid-run causes at most 2 more ticket POSTs.
+
 ## Before you run it
 
 - Use a read-only Sangfor account.

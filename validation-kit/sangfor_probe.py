@@ -52,13 +52,18 @@ API_ENDPOINTS = (
     ("vms", "/vapi/json/cluster/vms", None),
     ("alerts", "/vapi/json/log/alert/all", {"distinct": 0, "limit": 50, "direct": "DESC"}),
 )
-STOP_REASONS = ("auth", "tls", "timeout")  # nothing more to learn from the API after one of these
+STOP_REASONS = ("tls", "timeout")  # the API is unreachable: nothing more to learn from it
+MAX_AUTH_STREAK = 2  # two endpoints in a row rejecting the ticket: stop (at most 1 + 2 ticket POSTs)
 
 _HEX = "0-9A-Fa-f"
 EMAIL = re.compile(r"(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,63}(?![A-Za-z0-9-])")
 CISCO_MAC = re.compile(rf"(?<![0-9A-Za-z.])[{_HEX}]{{4}}\.[{_HEX}]{{4}}\.[{_HEX}]{{4}}(?![0-9A-Za-z]|\.[0-9A-Za-z])")
 _LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
 FQDN = re.compile(rf"(?<![A-Za-z0-9._@-])(?:{_LABEL}\.)+[A-Za-z]{{2,63}}(?![A-Za-z0-9_-]|\.[A-Za-z0-9])")
+SERIAL_PHRASE = re.compile(
+    r"\b(?:S/?N|serial(?:\s*(?:no|number))?)[:#\s]+(?=[A-Za-z-]*\d)([A-Za-z0-9-]{4,})", re.IGNORECASE
+)
+FILE_EXTENSIONS = {"img", "qcow2", "vmdk", "iso", "log", "txt", "json", "xml", "conf", "cfg", "tar", "gz", "zip", "bin"}
 UUID = re.compile(rf"(?<![0-9A-Za-z])[{_HEX}]{{8}}-[{_HEX}]{{4}}-[{_HEX}]{{4}}-[{_HEX}]{{4}}-[{_HEX}]{{12}}(?![0-9A-Za-z])")
 WWN_COLON = re.compile(rf"(?<![0-9A-Za-z:])(?:[{_HEX}]{{2}}:){{7}}[{_HEX}]{{2}}(?![0-9A-Za-z:])")
 MAC = re.compile(r"\b(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b")
@@ -74,11 +79,29 @@ OID_KEY = re.compile(r"\d+(?:\.\d+){5,}")
 NUMERIC_NAME = re.compile(r"-?[\d.]+")
 IDENTIFIER = re.compile(r"(?=\S*[A-Za-z])(?=\S*\d)\S{6,}")
 NAME_BOUNDARY = "A-Za-z0-9_-"
+# A name may also follow a numeric segment and '-'/'_', as in the kernel string 5.10.0-acme-node1.
+NAME_LEFT = rf"(?:(?<![{NAME_BOUNDARY}])|(?<=\d[-_]))"
+PROTECTABLE_KEY = re.compile(r"[A-Za-z_]+")  # schema-style payload keys; ids and host names carry digits or '-'
+LONG_DIGITS = re.compile(r"\d{8,}")
 
 NAME_KEYS = {"name", "hostname", "object_name", "target", "groupname", "owner", "user", "label", "displayname", "bridgename"}
-SERIAL_TOKENS = {"sn", "serial", "serialno", "license", "licence", "uuid", "mac", "wwn", "bios", "asset"}
+SERIAL_TOKENS = {
+    "sn", "serial", "serialno", "license", "licence", "uuid", "mac", "wwn", "bios", "asset", "tag", "chassis",
+    "servicetag",
+}
+VERSION_TOKENS = {"version", "firmware", "fw"}
+OS_KEYS = {"os", "osname", "ostype", "osversion", "osfullname", "guestos", "guestosname", "guestostype"}
+ENUM_KEYS = {"type", "object_type", "otype", "vmtype", "status", "state", "urgent_type"}
+# Generic infrastructure words and the placeholder kinds: never treated as names.
+STOP_WORDS = {
+    "data", "local", "storage", "host", "hosts", "node", "nodes", "vm", "vms", "cluster", "network", "disk", "ha",
+    "fc", "nfs", "iscsi", "ssd", "hdd", "raid", "fan", "cpu", "mem", "memory", "default", "admin", "system", "backup",
+    "test", "name", "ip", "ipv6", "email", "fqdn", "mac", "wwn", "hex", "uuid", "id", "serial", "sn", "license",
+    "licence", "bios", "asset", "tag", "chassis", "servicetag",
+}
 # Status words and version strings are what the probe exists to discover; they are not customer data.
-RAW_KEYS = {"status_values_seen", "sangfor_versions"}
+# Probe-made strings only; api_url is already reduced to scheme, redacted host and port by Redactor.url().
+RAW_KEYS = {"status_values_seen", "sangfor_versions", "api_checks", "probe_errors", "api_url"}
 SNMP_VALUE_KEYS = {"walk", "scalars"}
 META_KEYS = {
     "probe_version", "generated_at", "api_url", "sangfor_versions", "status_values_seen", "api_checks", "snmp_nodes",
@@ -90,6 +113,10 @@ STATUS_OID_PREFIXES = tuple(
     table.column_oid(column.suffix) + "." for table in oids.TABLES for column in table.columns if column.kind == "status"
 )
 RAW_SNMP_OIDS = {oids.VERSION, oids.BMC_VERSION, oids.BMC_IPMI_VERSION}
+NUMERIC_OID_PREFIXES = tuple(
+    table.column_oid(column.suffix) + "." for table in oids.TABLES for column in table.columns if column.kind != "status"
+)
+NUMERIC_SCALAR_OIDS = {oids.HOST_CPU.oid, oids.HOST_MEMORY.oid, oids.HOST_DISK.oid}
 
 
 def _key_tokens(key: str) -> list[str]:
@@ -102,13 +129,23 @@ def _serial_kind(key: str) -> str:
     return next((token for token in _key_tokens(key) if token in SERIAL_TOKENS), "")
 
 
+def _is_os_key(key: str) -> bool:
+    tokens = _key_tokens(key)
+    return "os" in tokens or "".join(tokens) in OS_KEYS
+
+
 def _is_name_key(key: str) -> bool:
     lowered = key.lower()
-    return lowered.endswith("name") or lowered in NAME_KEYS
+    return (lowered.endswith("name") or lowered in NAME_KEYS) and not _is_os_key(key)
+
+
+def _is_enum_key(key: str) -> bool:
+    lowered = key.lower()
+    return lowered in ENUM_KEYS or lowered.endswith("_type")
 
 
 def _is_version_key(key: str) -> bool:
-    return "version" in _key_tokens(key)
+    return any(token in VERSION_TOKENS for token in _key_tokens(key))
 
 
 def _is_ip(text: str) -> bool:
@@ -137,6 +174,7 @@ class Redactor:
         self._tokens: dict[tuple[str, str], str] = {}
         self._counts: dict[str, int] = {}
         self._names: dict[str, str] = {}  # _name_key(name) -> placeholder
+        self._protected: set[str] = set(STOP_WORDS)  # payload keys and enum values: never used as names
         self._name_re: re.Pattern[str] | None = None
 
     def _token(self, kind: str, value: str) -> str:
@@ -155,24 +193,35 @@ class Redactor:
             self._names[key] = self._token("name", key)
             self._name_re = None
 
+    def _protect(self, word: str) -> None:
+        key = _name_key(word.strip())
+        if key and key not in self._protected:
+            self._protected.add(key)
+            self._name_re = None
+
     def learn(self, obj: object, key: str = "") -> None:
+        """Learn names from name-like keys; remember payload keys and enum values so they are never names."""
         if isinstance(obj, dict):
             for child_key, value in obj.items():
-                self.learn(value, str(child_key))
+                child_key = str(child_key)
+                if PROTECTABLE_KEY.fullmatch(child_key):
+                    self._protect(child_key)
+                self.learn(value, child_key)
         elif isinstance(obj, list):
             for value in obj:
                 self.learn(value, key)
+        elif isinstance(obj, str) and _is_enum_key(key):
+            self._protect(obj)
         elif isinstance(obj, str) and _is_name_key(key):
             self.learn_name(obj, allow_short=key.lower() in NAME_KEYS)
 
     def _names_pattern(self) -> re.Pattern[str] | None:
-        if self._name_re is None and self._names:
-            alternatives = "|".join(
-                re.escape(name).replace(r"\-", "[-_]") for name in sorted(self._names, key=len, reverse=True)
-            )
-            self._name_re = re.compile(
-                rf"(?<![{NAME_BOUNDARY}])(?:{alternatives})(?![{NAME_BOUNDARY}])", re.IGNORECASE
-            )
+        if self._name_re is None:
+            names = sorted((name for name in self._names if name not in self._protected), key=len, reverse=True)
+            if not names:
+                return None
+            alternatives = "|".join(re.escape(name).replace(r"\-", "[-_]") for name in names)
+            self._name_re = re.compile(rf"{NAME_LEFT}(?:{alternatives})(?![{NAME_BOUNDARY}])", re.IGNORECASE)
         return self._name_re
 
     def _ipv6(self, match: re.Match[str]) -> str:
@@ -181,14 +230,37 @@ class Redactor:
             return found
         return self._token("ipv6", found.lower())
 
+    def _ipv4(self, match: re.Match[str]) -> str:
+        found = match.group(0)
+        try:
+            ipaddress.IPv4Address(found)  # rejects 4.40.30.00 (leading zero) and 300.1.1.1
+        except ValueError:
+            return found
+        return self._token("ip", found)
+
+    def _fqdn(self, match: re.Match[str]) -> str:
+        labels = match.group(0).split(".")
+        extensions: list[str] = []
+        while labels and labels[-1].lower() in FILE_EXTENSIONS:
+            extensions.insert(0, labels.pop())
+        if len(labels) < 2 or not re.fullmatch(r"[A-Za-z]{2,63}", labels[-1]):
+            return match.group(0)  # a file name such as disk.qcow2 or backup.tar.gz
+        return ".".join([self._token("fqdn", ".".join(labels).lower()), *extensions])
+
+    def _serial_phrase(self, match: re.Match[str]) -> str:
+        return match.group(0)[: match.start(1) - match.start(0)] + self._token("serial", match.group(1))
+
     def _cisco_mac(self, match: re.Match[str]) -> str:
         found = match.group(0)
         return self._token("mac", found.lower()) if re.search("[a-fA-F]", found) else found
 
-    def text(self, value: str) -> str:
+    def text(self, value: str, fqdn: bool = True) -> str:
+        """Redact free text. fqdn=False (version, firmware and OS values) skips only the host-name rule."""
         value = EMAIL.sub(lambda m: self._token("email", m.group(0).lower()), value)
+        value = SERIAL_PHRASE.sub(self._serial_phrase, value)
         value = CISCO_MAC.sub(self._cisco_mac, value)
-        value = FQDN.sub(lambda m: self._token("fqdn", m.group(0).lower()), value)
+        if fqdn:
+            value = FQDN.sub(self._fqdn, value)
         value = UUID.sub(lambda m: self._token("uuid", m.group(0).lower()), value)
         value = WWN_COLON.sub(lambda m: self._token("wwn", m.group(0).lower()), value)
         value = MAC.sub(lambda m: self._token("mac", m.group(0).lower()), value)
@@ -196,7 +268,7 @@ class Redactor:
         value = WWN_HEX.sub(lambda m: self._token("wwn", m.group(0).lower()), value)
         value = LONG_HEX.sub(lambda m: self._token("hex", m.group(0).lower()), value)
         value = BARE_HEX12.sub(lambda m: self._token("hex", m.group(0).lower()), value)
-        value = IPV4.sub(lambda m: self._token("ip", m.group(0)), value)
+        value = IPV4.sub(self._ipv4, value)
         pattern = self._names_pattern()
         if pattern is not None:  # last: every placeholder above is joined by '-', which blocks a name match
             value = pattern.sub(lambda m: self._names[_name_key(m.group(0))], value)
@@ -211,8 +283,11 @@ class Redactor:
     def _snmp_value(self, oid: str, value: object) -> object:
         if not isinstance(value, str):
             return self.redact(value)
-        if _is_number(value) or oid in RAW_SNMP_OIDS or oid.startswith(STATUS_OID_PREFIXES):
+        if oid in RAW_SNMP_OIDS or oid.startswith(STATUS_OID_PREFIXES):
             return value
+        if _is_number(value):
+            known = oid in NUMERIC_SCALAR_OIDS or oid.startswith(NUMERIC_OID_PREFIXES)
+            return self._token("serial", value.strip()) if LONG_DIGITS.fullmatch(value.strip()) and not known else value
         redacted = self.text(value)
         if redacted == value and IDENTIFIER.fullmatch(value):
             return self._token("id", value)
@@ -223,17 +298,43 @@ class Redactor:
         if key in RAW_KEYS:
             return obj
         if isinstance(obj, dict):
-            if key in SNMP_VALUE_KEYS:
-                return {self._key(oid): self._snmp_value(str(oid), value) for oid, value in obj.items()}
-            return {self._key(child_key): self.redact(value, str(child_key)) for child_key, value in obj.items()}
+            result: dict[str, object] = {}
+            for child_key, value in obj.items():
+                child_key = str(child_key)
+                redacted_key = self._key(child_key)
+                if redacted_key in result:  # two keys redacted to one placeholder: keep both
+                    number = 2
+                    while f"{redacted_key}#{number}" in result:
+                        number += 1
+                    redacted_key = f"{redacted_key}#{number}"
+                if key in SNMP_VALUE_KEYS:
+                    result[redacted_key] = self._snmp_value(child_key, value)
+                else:
+                    result[redacted_key] = self.redact(value, child_key)
+            return result
         if isinstance(obj, list):
             return [self.redact(value, key) for value in obj]
         serial = _serial_kind(key)
         if serial and isinstance(obj, (str, int, float)) and not isinstance(obj, bool) and obj != "":
             return self._token(serial, str(obj))
         if isinstance(obj, str):
-            return obj if _is_version_key(key) else self.text(obj)
+            return self.text(obj, fqdn=not (_is_version_key(key) or _is_os_key(key)))
         return obj
+
+    def url(self, url: str) -> str:
+        """Scheme, redacted host and port only: user info, path and query are dropped."""
+        parsed = urlparse(url if "://" in url else f"//{url}")
+        try:
+            host, port = parsed.hostname or "", parsed.port
+        except ValueError:
+            host, port = parsed.hostname or "", None
+        if not host:
+            return ""
+        redacted = self.text(host)
+        if redacted == host:
+            redacted = self._token("host", host.lower())
+        scheme = f"{parsed.scheme}://" if parsed.scheme else ""
+        return f"{scheme}{redacted}{f':{port}' if port else ''}"
 
 
 def _secret(env_name: str, prompt: str) -> str:
@@ -281,8 +382,8 @@ def _failed_check(endpoint: str, exc: BaseException, started: float) -> dict:
     return check
 
 
-def _must_stop(exc: BaseException) -> bool:
-    return not isinstance(exc, SangforApiError) or exc.reason in STOP_REASONS
+class _StopApi(Exception):
+    pass
 
 
 def probe_api(args: argparse.Namespace, raw: dict[str, object], checks: list[dict]) -> None:
@@ -305,35 +406,42 @@ def probe_api(args: argparse.Namespace, raw: dict[str, object], checks: list[dic
             checks.append(_failed_check("login", exc, started))
             return
         checks.append({"endpoint": "login", "ok": True, "ms": _ms(started)})
+        auth_streak = 0
 
-        def call(name: str, path: str, params: dict | None) -> object:
-            begun = time.perf_counter()
-            data = client.get(path, params)
-            checks.append({"endpoint": name, "ok": True, "ms": _ms(begun)})
-            return data
-
-        for name, path, params in API_ENDPOINTS:
+        def fetch(name: str, path: str, params: dict | None) -> tuple[bool, object]:
+            """One endpoint. A 401/403 is recorded and skipped; the API phase stops on tls, timeout, an
+            unexpected error, or MAX_AUTH_STREAK endpoints in a row rejecting the ticket."""
+            nonlocal auth_streak
             begun = time.perf_counter()
             try:
-                raw[name] = call(name, path, params)
+                data = client.get(path, params)
             except Exception as exc:
                 checks.append(_failed_check(name, exc, begun))
-                if _must_stop(exc):
-                    return
-        infos: list[dict] = []
-        raw["node_info"] = infos
-        host_list = raw.get("host_list")
-        for item in host_list if isinstance(host_list, list) else []:
-            host_id = str(item.get("id", "")) if isinstance(item, dict) else ""
-            if not host_id:
-                continue
-            begun = time.perf_counter()
-            try:
-                infos.append({"host_id": host_id, "info": call("node_info", f"/vapi/json/nodes/{host_id}/info", None)})
-            except Exception as exc:
-                checks.append(_failed_check("node_info", exc, begun))
-                if _must_stop(exc):
-                    return
+                auth = isinstance(exc, SangforApiError) and exc.reason == "auth"
+                auth_streak = auth_streak + 1 if auth else 0
+                if not isinstance(exc, SangforApiError) or exc.reason in STOP_REASONS or auth_streak >= MAX_AUTH_STREAK:
+                    raise _StopApi from None
+                return False, None
+            auth_streak = 0
+            checks.append({"endpoint": name, "ok": True, "ms": _ms(begun)})
+            return True, data
+
+        try:
+            for name, path, params in API_ENDPOINTS:
+                ok, data = fetch(name, path, params)
+                if ok:
+                    raw[name] = data
+            infos: list[dict] = []
+            raw["node_info"] = infos
+            host_list = raw.get("host_list")
+            for item in host_list if isinstance(host_list, list) else []:
+                host_id = str(item.get("id", "")) if isinstance(item, dict) else ""
+                if host_id:
+                    ok, data = fetch("node_info", f"/vapi/json/nodes/{host_id}/info", None)
+                    if ok:
+                        infos.append({"host_id": host_id, "info": data})
+        except _StopApi:
+            return
     finally:
         client.close()
 
@@ -357,8 +465,10 @@ def probe_snmp(args: argparse.Namespace, records: list[dict]) -> None:
         try:
             node = parse_node(entry, args.snmp_port)
         except ConfigError as exc:
-            # The message quotes the entry; keep only its shape so no address reaches the zip.
-            detail = re.sub(r"'[^']*'", "'<entry>'", str(exc))
+            # The message quotes the entry (which may itself contain quotes); keep only its shape.
+            detail = str(exc).replace(f"'{entry}'", "'<entry>'")
+            if entry in detail:
+                detail = "invalid snmp_nodes entry"
             records.append({"node": f"invalid-{index}", "error": "ConfigError", "detail": detail})
             continue
         record: dict = {"host_ip": node.host_ip, "snmp_version": args.snmp_version}
@@ -422,7 +532,8 @@ def learn_inputs(redactor: Redactor, args: argparse.Namespace) -> None:
             redactor.learn_name(user)
     for entry in _snmp_entries(args):
         try:
-            redactor.learn_name(parse_node(entry, args.snmp_port).address)  # IP addresses are skipped
+            # IP addresses are skipped; a short host name is still an operator-supplied identifier.
+            redactor.learn_name(parse_node(entry, args.snmp_port).address, allow_short=True)
         except ConfigError:
             continue  # an invalid entry is written only as invalid-<n> with '<entry>' in its detail
 
@@ -448,7 +559,7 @@ def write_bundle(
     meta = {
         "probe_version": PROBE_VERSION,
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "api_url": args.url or "",
+        "api_url": redactor.url(args.url) if args.url else "",
         "sangfor_versions": versions(raw, records),
         "status_values_seen": status_values(records),
         "api_checks": checks,
