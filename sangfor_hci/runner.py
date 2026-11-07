@@ -23,7 +23,9 @@ FEATURE_SETS = ("cluster", "host", "vm", "datastore", "hardware")
 PROBE_INTERVAL_SECONDS = 3600
 ALERT_PARAMS = {"distinct": 0, "limit": 100, "direct": "DESC"}
 NODE_INFO_TARGET = "/vapi/json/nodes/{id}/info"
-ABORT_REASONS = ("auth", "tls", "forbidden")
+# Reasons after which no further API request can succeed this cycle. Any failed login also aborts (during_login),
+# so one cycle sends at most one ticket POST.
+ABORT_REASONS = ("auth", "tls", "forbidden", "unreachable")
 
 
 @dataclass
@@ -149,6 +151,10 @@ class ClusterRunner:
                 result.events += alarms.collect(name, alerts, self._hosts, self._cursor)
         except _ApiAborted:
             pass
+        except Exception as exc:  # noqa: BLE001 - a bug in the API path must not cost the SNMP fallback
+            # Only the type name: the message of an exception we did not raise could carry a secret.
+            self._record_error(result, "api", "cycle", "unexpected", f"unexpected {type(exc).__name__}")
+            log.debug("api traceback:\n%s", "".join(traceback.format_tb(exc.__traceback__)))
         return hosts_from_api
 
     def _fetch(self, result: CycleResult, path: str, params: dict | None = None, target: str | None = None) -> object:
@@ -158,7 +164,7 @@ class ClusterRunner:
             return self._api.get(path, params)
         except SangforApiError as exc:
             self._record_error(result, "api", target, exc.reason, str(exc))
-            if exc.reason in ABORT_REASONS:
+            if exc.reason in ABORT_REASONS or getattr(exc, "during_login", False):
                 raise _ApiAborted() from exc
             return None
         finally:

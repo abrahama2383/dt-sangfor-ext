@@ -52,7 +52,7 @@ API_ENDPOINTS = (
     ("vms", "/vapi/json/cluster/vms", None),
     ("alerts", "/vapi/json/log/alert/all", {"distinct": 0, "limit": 50, "direct": "DESC"}),
 )
-STOP_REASONS = ("tls", "timeout")  # the API is unreachable: nothing more to learn from it
+STOP_REASONS = ("tls", "timeout", "unreachable", "network")  # the API cannot be reached: nothing more to learn
 MAX_AUTH_STREAK = 2  # two endpoints in a row rejecting the ticket: stop (at most 1 + 2 ticket POSTs)
 
 _HEX = "0-9A-Fa-f"
@@ -372,6 +372,8 @@ def _failed_check(endpoint: str, exc: BaseException, started: float) -> dict:
     check: dict = {"endpoint": endpoint, "ok": False}
     if isinstance(exc, SangforApiError):
         check["reason"] = exc.reason
+        if exc.error_class:  # e.g. MissingSchema or ConnectTimeout: a class name, never the exception text
+            check["error"] = exc.error_class
         status = re.search(r"\bHTTP (\d{3})\b", str(exc))
         if status:
             check["http_status"] = int(status.group(1))

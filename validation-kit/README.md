@@ -8,8 +8,8 @@ walks one SNMP subtree on each node you name.
 Login attempts and account lockout:
 
 - A failed login (for example a wrong password) is sent once and never retried; the probe then skips the API.
-- The one login can send up to 3 ticket POSTs, but only when the server answers HTTP 5xx or times out. These are
-  server errors, not password failures, so they do not count toward a lockout.
+- The ticket POST is never resent, not even after an HTTP 5xx or a timeout, so the one login is exactly 1 ticket POST
+  and cannot add a second failed attempt toward a lockout.
 - If a data endpoint rejects the ticket (HTTP 401/403), the probe logs in again once for that endpoint, records it as
   failed and moves on to the next one. After two endpoints in a row are rejected it stops calling the API, so a
   password changed mid-run causes at most 2 more ticket POSTs.

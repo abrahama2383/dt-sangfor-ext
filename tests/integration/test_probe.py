@@ -442,7 +442,8 @@ def test_probe_stops_after_two_consecutive_auth_failures(mock_api, tmp_path, mon
 
 def test_readme_documents_ticket_posts_on_server_errors():
     readme = (ROOT / "validation-kit" / "README.md").read_text(encoding="utf-8")
-    assert "5xx" in readme and "3 ticket POSTs" in readme and "lockout" in readme
+    assert "5xx" in readme and "exactly 1 ticket POST" in readme and "lockout" in readme
+    assert "3 ticket POSTs" not in readme  # the client no longer resends the ticket POST
 
 
 # Fix 2 item 3: URL userinfo, path and query never reach the zip

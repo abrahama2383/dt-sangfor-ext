@@ -1,10 +1,12 @@
 import threading
+import time
 
 import pytest
 
 from sangfor_hci.api.client import SangforApiClient, SangforApiError
 from sangfor_hci.config import SnmpNode, parse_endpoint
 from sangfor_hci.runner import FEATURE_SETS, ClusterRunner, CycleResult, _ApiAborted, default_snmp_factory
+from tests.integration.test_api_client import LoginSession
 
 NODES = ["10.0.0.11=127.0.0.1:11161", "10.0.0.12=127.0.0.1:11162"]
 
@@ -137,7 +139,7 @@ def test_wrong_password_logs_in_once_and_falls_back_to_snmp(mock_api, snmp_agent
 def test_unreachable_api_falls_back_to_snmp(snmp_agents):
     result = make_runner(make_config("http://127.0.0.1:9")).run_cycle()
     reasons = {m.dimensions["reason"] for m in result.metrics if m.key == "ext.poll.errors"}
-    assert reasons == {"timeout"}
+    assert reasons == {"unreachable"}
     assert value(result, "host.memory.usage", **{"sangfor.host.ip": "10.0.0.11"}) == 58.0
 
 
@@ -259,3 +261,72 @@ def test_abort_inside_node_info_does_not_send_queued_requests():
         runner._fetch_node_infos(CycleResult())
     # 4 workers: h0-h3 are in flight when h1 aborts; h4-h7 must never be sent (each would retry a failed login).
     assert set(api.ids) <= {"h0", "h1", "h2", "h3"}
+
+
+# --- Final fix item 1: one failed login per back-off window, across whole cycles --------------------------
+
+def test_wrong_password_answered_with_200_sends_one_post_per_back_off_window():
+    session = LoginSession()  # HTTP 200 + success:0 on the ticket POST
+    now = [1000.0]
+
+    def api_factory(config):
+        api = config.api
+        client = SangforApiClient(api.url, api.username, api.password, sleep=lambda s: None, clock=lambda: now[0])
+        client._session = session
+        return client
+
+    runner = ClusterRunner(make_config("https://hci.invalid", mode="api"), set(FEATURE_SETS), api_factory=api_factory)
+    result = runner.run_cycle()
+    assert session.posts == 1
+    reasons = [m.dimensions["reason"] for m in result.metrics if m.key == "ext.poll.errors"]
+    assert reasons == ["auth"]
+    now[0] += 240
+    second = runner.run_cycle()
+    assert session.posts == 1
+    assert any("next attempt in 60 s" in problem for problem in second.problems), second.problems
+    now[0] += 60
+    runner.run_cycle()
+    assert session.posts == 2
+    assert session.gets == []
+
+
+# --- Final fix item 2: an unreachable API aborts the API path quickly -------------------------------------
+
+def test_unreachable_api_cycle_finishes_well_under_the_interval(snmp_agents):
+    runner = ClusterRunner(make_config("http://127.0.0.1:9"), set(FEATURE_SETS))  # real client, real back-off sleeps
+    started = time.monotonic()
+    result = runner.run_cycle()
+    elapsed = time.monotonic() - started
+    runner.close()
+    assert elapsed < 15, elapsed
+    api_errors = [m for m in result.metrics if m.key == "ext.poll.errors" and m.dimensions["source"] == "api"]
+    assert [m.dimensions["reason"] for m in api_errors] == ["unreachable"]
+    assert value(result, "host.cpu.usage", **{"sangfor.host.ip": "10.0.0.11"}) == 12.0
+
+
+# --- Final fix item 3: nothing escapes run_cycle -----------------------------------------------------------
+
+def test_invalid_url_does_not_end_the_cycle(snmp_agents):
+    result = make_runner(make_config("http://:80")).run_cycle()
+    reasons = {m.dimensions["reason"] for m in result.metrics if m.key == "ext.poll.errors"}
+    assert "network" in reasons
+    assert value(result, "host.cpu.usage", **{"sangfor.host.ip": "10.0.0.12"}) == 31.0
+    assert "hw.raid.ok" in keys(result)
+
+
+class _ExplodingApi:
+    def get(self, path, params=None):
+        raise RuntimeError("secret-xyz")
+
+    def close(self):
+        pass
+
+
+def test_unexpected_api_error_is_recorded_by_class_name_and_snmp_still_runs(snmp_agents):
+    runner = ClusterRunner(make_config("https://hci.invalid"), set(FEATURE_SETS), api_factory=lambda c: _ExplodingApi())
+    result = runner.run_cycle()
+    errors = [m.dimensions for m in result.metrics if m.key == "ext.poll.errors"]
+    assert [(d["source"], d["reason"]) for d in errors] == [("api", "unexpected")]
+    assert any("RuntimeError" in problem for problem in result.problems)
+    assert not any("secret-xyz" in problem for problem in result.problems)
+    assert value(result, "host.memory.usage", **{"sangfor.host.ip": "10.0.0.11"}) == 58.0
