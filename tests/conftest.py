@@ -31,3 +31,38 @@ def mock_api_tls(tmp_path):
     yield f"https://127.0.0.1:{server.server_address[1]}", state, cert.read_text()
     server.shutdown()
     server.server_close()
+
+
+import time
+
+from simulator.snmp_sim import start_agent
+
+SNMP_PORTS = {"node-a": 11161, "node-b": 11162, "bare": 11163}
+
+
+def _wait_for_agent(port: int, deadline_seconds: float = 30.0) -> None:
+    from sangfor_hci.snmp.client import SnmpClient, SnmpError, SnmpTarget
+    from sangfor_hci.snmp.oids import SYS_DESCR
+
+    client = SnmpClient(SnmpTarget("127.0.0.1", port, "v2c", timeout=1.0, community="sangfopub"), retries=0)
+    end = time.monotonic() + deadline_seconds
+    while time.monotonic() < end:
+        try:
+            if client.get([SYS_DESCR]):
+                return
+        except SnmpError:
+            continue
+    raise RuntimeError(f"snmpsim on UDP {port} did not answer within {deadline_seconds} s")
+
+
+@pytest.fixture(scope="session")
+def snmp_agents():
+    processes = [start_agent(name, port) for name, port in SNMP_PORTS.items()]
+    try:
+        for port in SNMP_PORTS.values():
+            _wait_for_agent(port)
+        yield dict(SNMP_PORTS)
+    finally:
+        for process in processes:
+            process.terminate()
+            process.wait(timeout=10)
