@@ -1,6 +1,6 @@
 import pytest
 
-from sangfor_hci.api.client import SangforApiClient
+from sangfor_hci.api.client import SangforApiClient, SangforApiError
 from sangfor_hci.config import SnmpNode, parse_endpoint
 from sangfor_hci.runner import FEATURE_SETS, ClusterRunner
 
@@ -163,3 +163,61 @@ def test_overlapping_cycle_is_skipped(mock_api):
         assert runner.run_cycle().skipped is True
     finally:
         runner._lock.release()
+
+
+class _WrappedApi:
+    def __init__(self, real, deny_prefix, record=None):
+        self._real = real
+        self._deny_prefix = deny_prefix
+        self.paths = record if record is not None else []
+
+    def get(self, path, params=None):
+        self.paths.append(path)
+        if path.startswith(self._deny_prefix):
+            raise SangforApiError("auth", "denied")
+        return self._real.get(path, params)
+
+    def close(self):
+        self._real.close()
+
+
+def test_unexpected_snmp_error_on_one_node_keeps_the_cycle(mock_api, snmp_agents):
+    base, _ = mock_api
+    config = make_config(base, snmp_nodes=["10.0.0.11=127.0.0.1:11161", "10.0.0.12=no-such-host.invalid"])
+    result = make_runner(config).run_cycle()
+    assert any(m.key == "hw.fan.ok" and m.dimensions["sangfor.host.ip"] == "10.0.0.11" for m in result.metrics)
+    assert "cluster.cpu.usage" in keys(result)
+    assert any(
+        m.key == "ext.poll.errors" and m.dimensions["target"] == "10.0.0.12" and m.dimensions["reason"] == "unexpected"
+        for m in result.metrics
+    )
+
+
+def test_abort_after_host_list_keeps_api_authoritative_for_hosts(mock_api, snmp_agents):
+    base, _ = mock_api
+    config = make_config(base)
+    runner = ClusterRunner(
+        config,
+        set(FEATURE_SETS),
+        api_factory=lambda c: _WrappedApi(fast_api(c), "/vapi/json/vtpstorage/storelist"),
+    )
+    result = runner.run_cycle()
+    for ip in ("10.0.0.11", "10.0.0.12"):
+        value(result, "host.cpu.usage", **{"sangfor.host.ip": ip})
+    assert "hw.raid.ok" in keys(result)
+    assert any(m.key == "ext.poll.errors" and m.dimensions["reason"] == "auth" for m in result.metrics)
+
+
+def test_abort_inside_node_info_stops_the_api_path(mock_api):
+    base, _ = mock_api
+    paths = []
+    config = make_config(base, mode="api")
+    runner = ClusterRunner(
+        config,
+        set(FEATURE_SETS),
+        api_factory=lambda c: _WrappedApi(fast_api(c), "/vapi/json/nodes/", paths),
+    )
+    runner.run_cycle()
+    for later in ("/vapi/json/vtpstorage/storelist", "/vapi/json/cluster/vms", "/vapi/json/log/alert/all"):
+        assert later not in paths
+    assert len([p for p in paths if p.startswith("/vapi/json/nodes/")]) <= 2

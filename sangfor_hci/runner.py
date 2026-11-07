@@ -119,7 +119,12 @@ class ClusterRunner:
     # --- API path -------------------------------------------------------------
 
     def _run_api(self, result: CycleResult) -> bool:
+        """Returns True when the API delivered the host metrics, so SNMP must not emit them again.
+
+        An abort later in the cycle (for example an auth error on the datastore list) does not undo that.
+        """
         name = self.config.cluster_name
+        hosts_from_api = False
         try:
             overview = self._fetch(result, "/vapi/json/index/overview")
             host_list = self._fetch(result, "/vapi/json/index/host_list")
@@ -129,6 +134,7 @@ class ClusterRunner:
                 result.metrics += cluster.collect(name, overview)
             if "host" in self.enabled and host_list is not None:
                 result.metrics += host.collect(name, host_list, self._fetch_node_infos(result))
+                hosts_from_api = True
             if "datastore" in self.enabled:
                 stores = self._fetch(result, "/vapi/json/vtpstorage/storelist")
                 if stores is not None:
@@ -140,9 +146,9 @@ class ClusterRunner:
             alerts = self._fetch(result, "/vapi/json/log/alert/all", ALERT_PARAMS)
             if alerts is not None:
                 result.events += alarms.collect(name, alerts, self._hosts, self._cursor)
-            return host_list is not None
         except _ApiAborted:
-            return False
+            pass
+        return hosts_from_api
 
     def _fetch(self, result: CycleResult, path: str, params: dict | None = None, target: str | None = None) -> object:
         target = target or path
@@ -159,13 +165,20 @@ class ClusterRunner:
 
     def _fetch_node_infos(self, result: CycleResult) -> dict[str, dict]:
         ids = list(self._hosts)
+        aborted = threading.Event()
+
+        def fetch_one(host_id: str) -> object:
+            # Once one request has aborted the API path (auth/TLS/forbidden), queued requests are not sent.
+            if aborted.is_set():
+                return None
+            try:
+                return self._fetch(result, f"/vapi/json/nodes/{host_id}/info", target=NODE_INFO_TARGET)
+            except _ApiAborted:
+                aborted.set()
+                raise
+
         with ThreadPoolExecutor(max_workers=4) as pool:
-            responses = list(
-                pool.map(
-                    lambda host_id: self._fetch(result, f"/vapi/json/nodes/{host_id}/info", target=NODE_INFO_TARGET),
-                    ids,
-                )
-            )
+            responses = list(pool.map(fetch_one, ids))
         return {host_id: data for host_id, data in zip(ids, responses) if isinstance(data, dict)}
 
     # --- SNMP path ------------------------------------------------------------
@@ -193,10 +206,10 @@ class ClusterRunner:
     def _poll_node(
         self, result: CycleResult, node: SnmpNode, api_name: str, want_hardware: bool, want_host: bool
     ) -> list[Metric]:
-        client = self._snmp_factory(self.config, node)
         started = time.perf_counter()
         name_of_cluster = self.config.cluster_name
         try:
+            client = self._snmp_factory(self.config, node)
             if not self._private_subtree_present(result, client, node):
                 return []
             scalars = client.get([oids.SYS_NAME, oids.HOST_CPU.oid, oids.HOST_MEMORY.oid, oids.HOST_DISK.oid])
@@ -210,6 +223,10 @@ class ClusterRunner:
             return metrics
         except SnmpError as exc:
             self._record_error(result, "snmp", node.host_ip, "snmp", str(exc))
+            return []
+        except Exception as exc:  # noqa: BLE001 - one bad node (e.g. unresolvable address) must not end the cycle
+            # Only the type name: the message of an exception we did not raise could carry a community or key.
+            self._record_error(result, "snmp", node.host_ip, "unexpected", f"unexpected {type(exc).__name__}")
             return []
         finally:
             self._record_duration(result, "snmp", node.host_ip, started)
