@@ -95,6 +95,7 @@ def test_ticket_expired_scenario_rejects_first_ticket_once(mock_api):
     assert second.status_code == 200
 
 
+@pytest.mark.filterwarnings("ignore::urllib3.exceptions.InsecureRequestWarning")  # verify=False is the point of this test
 def test_tls_server_serves_https(mock_api_tls):
     base, _, cert_pem = mock_api_tls
     assert "BEGIN CERTIFICATE" in cert_pem

@@ -20,7 +20,7 @@ The design and its open questions are in [docs/superpowers/specs/](docs/superpow
   - Python 3.10 support ended on 2026-10-26.
 - Network from the ActiveGate: TCP 443 to the HCI cluster VIP, and UDP 161 to every HCI node.
 - Sangfor side:
-  - A read-only API account.
+  - A read-only API account that can read: the cluster overview, the host list and node info, the storage list, VMs, and alerts/logs. The extension only sends GET requests, plus the one login POST.
   - SNMP enabled under System Management > Port Management > SNMP. v3 is recommended; for v2c the community is reported to be `sangfopub`.
 
 ## Install on Dynatrace Managed
@@ -34,10 +34,13 @@ The design and its open questions are in [docs/superpowers/specs/](docs/superpow
 
    ```bash
    export DT_API_URL=https://<managed-domain>/e/<environment-id>
-   export DT_API_TOKEN=<token>
-   export REQUESTS_CA_BUNDLE=<managed-ca.pem>   # only if the Managed endpoint uses a private CA
-   .venv/bin/dt-sdk upload dist/<package>.zip
+   read -rs DT_API_TOKEN && export DT_API_TOKEN   # paste the token; it is not echoed or kept in shell history
+   export REQUESTS_CA_BUNDLE=<managed-ca.pem>     # only if the Managed endpoint uses a private CA
+   .venv/bin/dt-sdk upload --active dist/<package>.zip
+   unset DT_API_TOKEN
    ```
+
+   `--active` makes the uploaded version the active one. Without it, a later upload stays inactive until you activate it in the UI.
 
 3. **Add a monitoring configuration** for each Sangfor cluster (Extensions → custom:sangfor-hci): choose the ActiveGate group and the feature sets, then fill in the fields below.
 
@@ -46,21 +49,25 @@ The design and its open questions are in [docs/superpowers/specs/](docs/superpow
 | Cluster name | Unique, and used as the entity identity. Do not rename it later. |
 | Collection mode | `both`, `api` or `snmp` |
 | Polling interval / VM polling interval | 60 s and 300 s by default. VM metrics dominate the cost; see below. |
+| Request timeout | 10 s by default (1–120), per API request and per SNMP request. |
 | API URL, user, password | For example `https://10.0.0.10`. A read-only account is recommended. |
 | Verify TLS / Custom CA | HCI usually has a self-signed certificate: paste its CA rather than switching verification off. |
 | SNMP version, community or v3 user and keys, context | v3 with SHA and AES128 by default. The context is usually empty. |
+| SNMP port | 161 by default; used for every node that does not give its own `:PORT`. |
 | SNMP nodes | `IP` or `IP=ADDRESS:PORT` per node. Empty in `both` mode means: use the host IPs from the API. |
 
 ## Ingest volume (DDU)
 
-Each data point costs 0.001 DDU. Per day:
+Each data point costs 0.001 DDU. Per day, with the default 60 s polling interval:
 
 ```
-DDU/day ≈ 1.44 × (9 + 55 × hosts + 10 × datastores)          # cluster, host, hardware, datastore at 60 s
-        + 0.00288 × 8 × VMs × (300 / vm_interval_seconds)      # 8 VM metrics
+DDU/day ≈ 1.44 × (14 + 57 × hosts + 10 × datastores) × (60 / interval_seconds)   # cluster, host, hardware, datastore, self-monitoring
+        + 0.288 × 8 × VMs × (300 / vm_interval_seconds)                           # 8 VM metrics
 ```
 
-Examples: 4 hosts, 100 VMs and 5 datastores come to about 0.6k DDU/day. 8 hosts, 500 VMs and 10 datastores come to about 1.9k DDU/day.
+1.44 is one metric every 60 s for a day (1,440 points), and 0.288 is one metric every 300 s (288 points). The 14 and the 2 extra per host are the extension's own `ext.poll.*` self-monitoring points.
+
+Examples: 4 hosts, 100 VMs and 5 datastores come to about 0.65k DDU/day. 8 hosts, 500 VMs and 10 datastores come to about 2.0k DDU/day.
 The 55 series per host is an estimate that depends on the hardware. To lower the cost, turn off the `vm` feature set or raise the VM interval.
 
 ## Develop
@@ -105,7 +112,7 @@ Certificates and keys never go into this repository; `.gitignore` excludes `*.pe
 .venv/bin/python scripts/check_package.py dist/*.zip
 ```
 
-`check_package.py` confirms the package is signed, under 25 MB, and carries Linux and Windows wheels for Python 3.10 and 3.14.
+`check_package.py` confirms the package is signed, under 25 MB, carries the pinned dependency versions, and has the native cryptography and cffi wheels for Linux (manylinux2014) and Windows on Python 3.10 and 3.14.
 It does not verify the signature against your CA; Dynatrace does that on upload.
 
 Raise `version` in `extension/extension.yaml` before every upload; Dynatrace rejects a version it already has.
