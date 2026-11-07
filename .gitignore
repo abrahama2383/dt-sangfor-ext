@@ -29,3 +29,7 @@ simulator/.certs/
 secrets.json
 validation-output/
 *.log
+
+# dt-sdk build output
+build/
+extension/lib/
