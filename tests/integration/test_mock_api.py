@@ -74,6 +74,16 @@ def test_host_offline_scenario(mock_api):
     assert hosts[1]["status"] == 0
 
 
+@pytest.mark.parametrize("mock_api", ["datastore_90"], indirect=True)
+def test_datastore_90_scenario_is_consistent(mock_api):
+    base, state = mock_api
+    headers = _auth_headers(_login(base, state))
+    store = requests.get(f"{base}/vapi/json/vtpstorage/storelist", headers=headers, timeout=5).json()["data"]["local"][0]
+    assert store["status"] == 0x0101
+    assert store["used"] + store["avail"] == store["total"]
+    assert store["used_ratio"] == "93.00"
+
+
 @pytest.mark.parametrize("mock_api", ["ticket_expired"], indirect=True)
 def test_ticket_expired_scenario_rejects_first_ticket_once(mock_api):
     base, state = mock_api

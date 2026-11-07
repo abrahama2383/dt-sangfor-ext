@@ -27,6 +27,10 @@ from cryptography.x509.oid import NameOID
 FIXTURES = Path(__file__).parent / "fixtures"
 SCENARIOS = ("healthy", "host_offline", "datastore_90", "ticket_expired")
 
+# Datastore status flags from the Sangfor API spec (storelist "status").
+DATASTORE_ONLINE = 0x0001
+DATASTORE_OVER_90 = 0x0100
+
 
 def load_fixtures() -> dict[str, object]:
     return {path.stem: json.loads(path.read_text(encoding="utf-8")) for path in sorted(FIXTURES.glob("*.json"))}
@@ -43,9 +47,10 @@ def apply_scenario(fixtures: dict, scenario: str) -> dict:
         data["overview"]["data"]["host"].update({"online": 1, "offline": 1})
     elif scenario == "datastore_90":
         datastore = data["storelist"]["data"]["local"][0]
-        datastore["status"] = 0x0001 | 0x0100
+        datastore["status"] = DATASTORE_ONLINE | DATASTORE_OVER_90
         datastore["used"] = int(datastore["total"] * 0.93)
         datastore["avail"] = datastore["total"] - datastore["used"]
+        datastore["used_ratio"] = f"{datastore['used'] / datastore['total'] * 100:.2f}"
     return data
 
 
