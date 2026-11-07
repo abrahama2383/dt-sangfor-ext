@@ -43,6 +43,9 @@ Each monitoring configuration selects which paths it uses (`api`, `snmp` or `bot
 | F8 | SNMP on HCI is enabled under System Management > Port Management > SNMP, where the MIB is also downloadable. The v2c community is reportedly fixed to `sangfopub`. v3 supports MD5/SHA auth and AES/DES privacy. | Sangfor support docs (HCI 6.10), Sangfor CN forum |
 | F9 | SNMP support varies by release: one user reports the HCI 6.9.1 MIB has no private branch, and another reports v2c timing out with only v3 answering. | Sangfor community forums |
 | F10 | SNMP values appear to be strings such as `"0.45"`. The Zabbix template applies regex `([0-9.]+)` and a ×100 multiplier. This is inferred from the template and not yet observed on a device. | zabbix/community-templates |
+| F11 | pysnmp 7 needs `cryptography` (a native package) for SNMPv3 privacy (AES/DES). `cryptography` 50.0.2 ships `abi3` wheels for `manylinux2014_x86_64` and `win_amd64`: about 4.7 MB per Linux wheel and 3.9 MB per Windows wheel, for each of Python 3.10 and 3.14. | pysnmp 7.1.31 source, PyPI |
+| F12 | `dt-sdk build` supports `--only-extra-platforms`, which skips wheels for the build machine (macOS arm64) and keeps the package under the 25 MB limit. | dt-extensions-sdk 1.11.3 CLI source |
+| F13 | Verified on the Mac: pysnmp 7.1.31 on Python 3.14 reads string (`OctetString`) values from snmpsim 1.2.2 over v2c and over v3 (SHA/AES). snmpsim selects its data file by v3 context name, so the simulator needs `context_name = "sangfopub"`. | local spike, 2026-11-07 |
 
 Versions of the target Sangfor HCI, the Managed cluster and the ActiveGates are **unknown**. The design targets HCI 6.x with runtime version detection, and ActiveGate builds for both Python 3.10 and 3.14.
 
@@ -64,8 +67,8 @@ Environment ActiveGate (group: e.g. "sangfor")
 - Extension name: `custom:sangfor-hci`. Python module: `sangfor_hci`.
 - `minDynatraceVersion: "1.285"` for now, taken from the SDK example. It must be confirmed against a real Managed cluster (see §11).
 - Build from the Mac (arm64) for Linux and Windows ActiveGates:
-  `dt-sdk build --python-version 3.10 --python-version 3.14 --extra-platform manylinux2014_x86_64 --extra-platform win_amd64`
-- Runtime dependencies: `requests`, `pysnmp`, `cryptography`. Each must have wheels for every target platform and Python version, and the build is checked for this.
+  `dt-sdk build --only-extra-platforms -e manylinux2014_x86_64 -e win_amd64 -p 3.10 -p 3.14`
+- Runtime dependencies, pinned: `dt-extensions-sdk==1.11.3`, `requests==2.34.2`, `pysnmp==7.1.31`, `cryptography==50.0.2`. `cryptography` is used for both the Sangfor RSA login and SNMPv3 privacy. The build is checked for the presence of the Linux and Windows wheels and for the package size staying under 25 MB.
 - Signing certificates are generated with `dt-sdk gencerts` and stored **outside the repo**. `.gitignore` already blocks `*.pem`, `*.key`, `*.crt` and `*.p12`.
 - Upload: `dt-sdk upload` with `DT_API_URL=https://<domain>/e/<env-id>` and a token with `extensions.read` and `extensions.write`. Managed endpoints often use a custom or self-signed TLS certificate, so the upload step must accept a custom CA bundle.
 
@@ -83,11 +86,11 @@ One configuration describes one Sangfor cluster.
 | `api.username` / `api.password` | string / secret | — | A read-only Sangfor account is recommended. |
 | `api.verify_tls` | bool | true | Turning it off logs a warning on every start. |
 | `api.ca_pem` | string (multiline) | empty | Custom CA for self-signed HCI certificates. |
-| `snmp.nodes` | list of IP | empty | In `both` mode, empty means "use host IPs from the API `host_list`". |
+| `snmp.nodes` | list of `IP` or `IP=ADDRESS:PORT` | empty | `IP` is the host's management IP and is used for identity. `ADDRESS:PORT` is where to poll when it differs (NAT, or the simulator). In `both` mode, empty means "use host IPs from the API `host_list`". |
 | `snmp.port` | int | 161 | |
 | `snmp.version` | enum `v2c` / `v3` | `v3` | |
 | `snmp.community` | secret | `sangfopub` | v2c only. |
-| `snmp.v3.*` | user, auth protocol (MD5/SHA/SHA256), auth key, priv protocol (DES/AES128/AES256), priv key | — | Keys are secret fields. |
+| `snmp.v3.*` | user, auth protocol (MD5/SHA/SHA256), auth key, priv protocol (NONE/DES/AES128/AES256), priv key, context name | context name empty | Keys are secret fields. The simulator uses context name `sangfopub` (F13). |
 | `timeout_seconds` | int | 10 | Applies to both HTTP and SNMP. |
 
 Secrets are stored as secret fields in the activation schema, so Dynatrace encrypts them. They are never logged.
@@ -156,16 +159,16 @@ The VM set is kept small on purpose (§9). Packet counters, IO ops and `io_ratio
 | Key | Unit | Field |
 |---|---|---|
 | `datastore.total` / `datastore.available` | bytes | `total` / `avail` |
-| `datastore.usage` | % | `(total - avail) / total` |
-| `datastore.read.iops` | IOPS | `read_cnt` |
-| `datastore.read.throughput` | B/s | `read_ratio` |
+| `datastore.usage` | % | `used / total` |
+| `datastore.read.iops` / `datastore.write.iops` | IOPS | `read_cnt` / `write_cnt` |
+| `datastore.read.throughput` / `datastore.write.throughput` | B/s | `read_ratio` / `write_ratio` |
 | `datastore.online` | 0/1 | `status & 0x0001` |
 | `datastore.partial_access` | 0/1 | `status & 0x0010` |
 | `datastore.capacity_alert` | 0/1 | `status & 0x0100` (over 90%) |
 
 Dimensions: `sangfor.datastore.id`, `sangfor.datastore.name`, `sangfor.datastore.type` (fc / iscsi / local / nfs), `sangfor.datastore.shared`.
 
-The spec lists the `status` flag values in hex notation (0x0001, 0x0010, 0x0100, 0x1000). Whether these are hex bit masks or binary-digit notation (1, 2, 4, 8) is ambiguous, and the validation kit must settle it (§11). The write-side fields are not documented on the same page, so they are not included until observed.
+The spec lists the `status` flag values in hex notation (0x0001, 0x0010, 0x0100, 0x1000). Whether these are hex bit masks or binary-digit notation (1, 2, 4, 8) is ambiguous, and the validation kit must settle it (§11). Numeric fields arrive as either JSON numbers or strings (for example `"read_cnt": "0.33"` next to `"read_cnt": 0`), so every field goes through one number parser.
 
 Virtual storage (aSAN) is not returned by `storelist`. It is covered in v2.
 
@@ -183,7 +186,7 @@ Virtual storage (aSAN) is not returned by `storelist`. It is covered in v2.
 | `hw.fs.usage` | % | `R.2.5.1.6.{i}` | `fs` |
 | `hw.optical.rx.power` / `hw.optical.tx.power` | dBm | `R.2.12.1.5/4.{i}` | `port` = `R.2.12.1.3.{i}` |
 
-SNMP also reads `sysDescr` (`1.3.6.1.2.1.1.1.0`), `aCloudVersion` (`R.1.0`) and BMC info (`R.2.7.1/2/3.0`) as dimensions or properties, not metrics.
+The extension reads `sysName` (`1.3.6.1.2.1.1.5.0`) to name hosts in `snmp` mode. `sysDescr`, `aCloudVersion` (`R.1.0`) and BMC info (`R.2.7.1/2/3.0`) are read by the validation kit only. Showing them as entity properties is deferred to v2.
 
 The OK/not-OK string values for fan and RAID status are unknown. Until the validation kit shows them, any value other than the first value seen at startup is treated as "not OK" (the same logic the Zabbix template uses) and logged for later mapping.
 
@@ -192,7 +195,7 @@ The OK/not-OK string values for fan and RAID status are unknown. Until the valid
 | Key | Unit | Dimensions |
 |---|---|---|
 | `ext.poll.duration` | ms | `source` (api/snmp), `target` (endpoint or node) |
-| `ext.poll.errors.count` | count | `source`, `target`, `reason` (auth / timeout / http / parse / snmp) |
+| `ext.poll.errors` | errors in this cycle (gauge) | `source`, `target`, `reason` (auth / timeout / http / parse / snmp) |
 
 ### 5.3 Overlap rule in `both` mode
 
@@ -200,9 +203,9 @@ The API is authoritative for metrics both paths provide (host CPU and memory). S
 
 ### 5.4 Alarms as events
 
-- Source: `GET /vapi/json/log/alert/all?distinct=0&starttime=<cursor>&direct=ASC`.
-- Mapping: `urgent_type == 1` becomes `ERROR_EVENT` (opens a Davis problem); anything else becomes `CUSTOM_INFO`.
-- Target entity: `object_type == host` attaches to `sangfor_hci:host`, `vm` attaches to `sangfor_hci:vm`, and everything else attaches to `sangfor_hci:cluster`. The selector matches the exact display name, for example `type("sangfor_hci:host"),entityName.equals("<cluster> / <host name>")`.
+- Source: `GET /vapi/json/log/alert/all?distinct=0&limit=100&direct=DESC`. The response is nested: `data.data[]` holds the alarms and `data.total` the count. The format of the `starttime` filter is undocumented, so it is not used. Filtering happens client-side on `start` (epoch seconds) and `log_id`.
+- Mapping: `urgent_type == "1"` (a string in the spec example) becomes `ERROR_EVENT` (opens a Davis problem); anything else becomes `CUSTOM_INFO`.
+- Target entity: `object_type == host` attaches to `sangfor_hci:host`, `vm` attaches to `sangfor_hci:vm`, and everything else attaches to `sangfor_hci:cluster`. The host name is resolved through `hostid` → `host_list[].name`, because the alarm's own `hostname` field holds an IP. The selector matches the exact display name, for example `type("sangfor_hci:host"),entityName.equals("<cluster> / <host name>")`.
 - Properties: `sangfor.log_id`, `sangfor.alert.type`, `sangfor.object.name`, `sangfor.host.name`, and the original message.
 - Deduplication: an in-memory set of the last 5,000 `log_id`s plus a time cursor. After an extension restart, the cursor starts at "now minus 2 cycles", which can produce a small number of duplicates. This is accepted and documented.
 - Event timeout: 15 minutes, one-shot. Re-sending active alarms to keep the event open is deferred until the validation kit shows what the alarm `status` field means.
@@ -215,7 +218,8 @@ dt-sangfor-ext/
 │  ├─ extension.yaml          metrics metadata, topology, feature sets, screens, dashboard
 │  └─ activationSchema.json   §4
 ├─ sangfor_hci/
-│  ├─ __main__.py             Extension subclass: schedules cycles per configuration, orchestrates, nothing else
+│  ├─ __main__.py             Extension subclass: schedules one cycle per configuration, emits, sets status
+│  ├─ runner.py               one cycle for one cluster: calls clients and collectors, returns metrics, events and problems (no SDK import)
 │  ├─ config.py               activation config → frozen dataclasses, validation errors with clear messages
 │  ├─ model.py                Metric and Event dataclasses, entity dimension builders
 │  ├─ emit.py                 the only module that calls the SDK's report_metric / report_dt_event
@@ -271,7 +275,7 @@ The SNMP subtree probe (`GETNEXT` on `R`) runs at startup and every hour per nod
 | One endpoint or one node fails | Others continue. Metrics for the failed part are simply absent for that cycle. |
 | Unparseable value | That data point is skipped and logged at debug level. **No synthetic zeros, ever.** |
 | SNMP subtree missing | `hardware` disabled for that node (§7). In `snmp` mode, host CPU and memory also come from the private subtree, so such a node only reports self-monitoring (poll duration and errors) and the extension status names the node. |
-| Unknown Sangfor version | Logged once with the detected version. Collection continues, and missing fields are handled by the unparseable-value rule. |
+| Unknown Sangfor version | The version (`os_version`) is carried as the `sangfor.version` dimension and host attribute, so it is visible per host. Collection continues, and missing fields are handled by the unparseable-value rule. |
 | Cycle overruns its interval | The next cycle is skipped rather than stacked, and logged. |
 
 Security rules:
@@ -286,12 +290,12 @@ Each data point sent to Dynatrace Managed is billed: 0.001 DDU per metric data p
 
 Per VM, the v1 set is 8 metrics. At `vm_interval_seconds = 300` that is 8 × 288 = 2,304 data points/day, about **2.3 DDU/day per VM**. At a 60 s interval it would be about 11.5 DDU/day per VM.
 
-Per host, about 55 series per minute is assumed: 7 `host` metrics plus about 48 `hardware` series (2 CPUs, 6 fans × 2, 1 RAID, 4 SSDs, 5 filesystems × 4, 4 optical ports × 2, disk usage). The cluster set has 9 series and each datastore has 8.
+Per host, about 55 series per minute is assumed: 7 `host` metrics plus about 48 `hardware` series (2 CPUs, 6 fans × 2, 1 RAID, 4 SSDs, 5 filesystems × 4, 4 optical ports × 2, disk usage). The cluster set has 9 series and each datastore has 10.
 
 | Cluster size | Cluster + hosts + datastores (60 s) | VMs at 300 s | Total / day |
 |---|---|---|---|
-| 4 hosts, 100 VMs, 5 datastores | 9 + 4 × 55 + 5 × 8 = 269 dp/min ≈ 387 DDU | ≈ 230 DDU | ≈ 0.6k DDU |
-| 8 hosts, 500 VMs, 10 datastores | 9 + 8 × 55 + 10 × 8 = 529 dp/min ≈ 762 DDU | ≈ 1,152 DDU | ≈ 1.9k DDU |
+| 4 hosts, 100 VMs, 5 datastores | 9 + 4 × 55 + 5 × 10 = 279 dp/min ≈ 402 DDU | ≈ 230 DDU | ≈ 0.6k DDU |
+| 8 hosts, 500 VMs, 10 datastores | 9 + 8 × 55 + 10 × 10 = 549 dp/min ≈ 791 DDU | ≈ 1,152 DDU | ≈ 1.9k DDU |
 
 These are design-time estimates. Hardware series counts depend on how many CPUs, fans and filesystems each node actually reports. The `vm` feature set can be turned off per configuration, and `vm_interval_seconds` can be raised. The README will ship a calculator formula so that a customer sees the cost before enabling the extension.
 
