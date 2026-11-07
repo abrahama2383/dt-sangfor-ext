@@ -49,12 +49,39 @@ The design and its open questions are in [docs/superpowers/specs/](docs/superpow
 | Cluster name | Unique, and used as the entity identity. Do not rename it later. |
 | Collection mode | `both`, `api` or `snmp` |
 | Polling interval / VM polling interval | 60 s and 300 s by default. VM metrics dominate the cost; see below. |
-| Request timeout | 10 s by default (1–120), per API request and per SNMP request. |
+| Request timeout | 10 s by default (1–120), per API request and per SNMP request. See [API failures](#api-failures-and-login-back-off) for the worst case per cycle. |
 | API URL, user, password | For example `https://10.0.0.10`. A read-only account is recommended. |
 | Verify TLS / Custom CA | HCI usually has a self-signed certificate: paste its CA rather than switching verification off. |
 | SNMP version, community or v3 user and keys, context | v3 with SHA and AES128 by default. The context is usually empty. |
 | SNMP port | 161 by default; used for every node that does not give its own `:PORT`. |
 | SNMP nodes | `IP` or `IP=ADDRESS:PORT` per node. Empty in `both` mode means: use the host IPs from the API. |
+
+### TLS on ActiveGate 1.333+ (Python 3.14)
+
+On Python 3.14, urllib3 turns on strict X.509 verification. A pasted HCI CA can still be rejected when:
+
+- the leaf certificate has no Subject Alternative Name for the VIP address or IP you put in the API URL;
+- the chain lacks an Authority Key Identifier;
+- a self-signed leaf certificate is used as its own CA.
+
+Before you configure the extension, run the validation probe with `--ca-file <the CA you will paste>` under the
+same Python version as the ActiveGate (see [validation-kit/README.md](validation-kit/README.md)). If it fails with
+reason `tls`, fix or reissue the HCI certificate. Turn verification off only as a last resort.
+
+### API failures and login back-off
+
+- **Wrong password.** The login is sent once and never resent. A rejected login (HTTP 200 with `success` ≠ 1, any
+  4xx, or no ticket) stops all logins for 5 minutes, then 10, 20, 40 and 60 minutes, and stays at 60 minutes until a
+  login succeeds. Until then each cycle reports `reason=auth` with the text "login suppressed after a failed login;
+  next attempt in N s" in the extension status, and no request is sent. So a typo in the password costs at most one
+  failed login per back-off window; fix the password and the next attempt after the window recovers.
+- **Unreachable API** (connection refused or connect timeout). Not retried: the API path is aborted for that cycle
+  (`reason=unreachable`) and, in `both` mode, SNMP still delivers host CPU and memory within the same cycle.
+- **Read timeouts and HTTP 5xx** on a data request are retried twice (1 s, then 3 s). The worst case per request is
+  3 × the request timeout + 4 s; after that only that endpoint is skipped. A login that fails this way is not
+  resent and aborts the API path for that cycle, without the back-off.
+- **Other network errors** (`reason=network`) and unexpected errors (`reason=unexpected`) are reported by class
+  name only; SNMP still runs.
 
 ## Ingest volume (DDU)
 
