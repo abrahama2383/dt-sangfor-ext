@@ -1,0 +1,108 @@
+import importlib.util
+import io
+import os
+import zipfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+_spec = importlib.util.spec_from_file_location("check_package", ROOT / "scripts" / "check_package.py")
+check_package = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(check_package)
+
+GOOD_WHEELS = [
+    "cryptography-50.0.2-cp39-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+    "cryptography-50.0.2-cp311-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+    "cryptography-50.0.2-cp39-abi3-win_amd64.whl",
+    "cryptography-50.0.2-cp311-abi3-win_amd64.whl",
+    "cffi-2.1.1-cp310-cp310-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+    "cffi-2.1.1-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+    "cffi-2.1.1-cp310-cp310-win_amd64.whl",
+    "cffi-2.1.1-cp314-cp314-win_amd64.whl",
+    "pysnmp-7.1.31-py3-none-any.whl",
+    "requests-2.34.2-py3-none-any.whl",
+    "dt_extensions_sdk-1.11.3-py3-none-any.whl",
+    "sangfor_hci-0.1.0-py3-none-any.whl",
+]
+
+
+def make_package(tmp_path, wheels, with_sig=True):
+    inner = io.BytesIO()
+    with zipfile.ZipFile(inner, "w") as z:
+        z.writestr("extension.yaml", "name: custom:sangfor-hci\n")
+        for wheel in wheels:
+            z.writestr(f"lib/{wheel}", b"x")
+    path = tmp_path / "custom_sangfor-hci-0.1.0.zip"
+    with zipfile.ZipFile(path, "w") as outer:
+        outer.writestr("extension.zip", inner.getvalue())
+        if with_sig:
+            outer.writestr("extension.zip.sig", b"sig")
+    return path
+
+
+def test_good_package_passes(tmp_path):
+    assert check_package.check(make_package(tmp_path, GOOD_WHEELS)) == []
+
+
+def test_missing_windows_wheel_and_signature_are_reported(tmp_path):
+    wheels = [w for w in GOOD_WHEELS if w != "cryptography-50.0.2-cp311-abi3-win_amd64.whl"]
+    problems = check_package.check(make_package(tmp_path, wheels, with_sig=False))
+    assert any("extension.zip.sig" in p for p in problems)
+    assert any("cp311-abi3-win_amd64" in p for p in problems)
+
+
+def test_macos_wheels_are_rejected(tmp_path):
+    wheels = GOOD_WHEELS + ["cryptography-50.0.2-cp311-abi3-macosx_11_0_arm64.whl"]
+    assert any("macosx" in p for p in check_package.check(make_package(tmp_path, wheels)))
+
+
+def test_size_limit(tmp_path, monkeypatch):
+    monkeypatch.setattr(check_package, "MAX_BYTES", 10)
+    assert any("25 MB" in p or "limit" in p for p in check_package.check(make_package(tmp_path, GOOD_WHEELS)))
+
+
+def test_size_message_uses_the_limit(tmp_path, monkeypatch):
+    monkeypatch.setattr(check_package, "MAX_BYTES", 1024 * 1024)
+    path = make_package(tmp_path, GOOD_WHEELS)
+    with zipfile.ZipFile(path, "a") as outer:
+        outer.writestr("padding.bin", os.urandom(2 * 1024 * 1024))  # incompressible, so the zip really grows
+    assert any("over the 1 MB limit" in p for p in check_package.check(path))
+
+
+def test_missing_extension_yaml_is_reported(tmp_path):
+    inner = io.BytesIO()
+    with zipfile.ZipFile(inner, "w") as z:
+        for wheel in GOOD_WHEELS:
+            z.writestr(f"lib/{wheel}", b"x")
+    path = tmp_path / "p.zip"
+    with zipfile.ZipFile(path, "w") as outer:
+        outer.writestr("extension.zip", inner.getvalue())
+        outer.writestr("extension.zip.sig", b"sig")
+    assert any("extension.yaml" in p for p in check_package.check(path))
+
+
+def test_wrong_pinned_version_fails(tmp_path):
+    wheels = [w.replace("pysnmp-7.1.31", "pysnmp-7.1.30") for w in GOOD_WHEELS]
+    assert any("pysnmp" in p for p in check_package.check(make_package(tmp_path, wheels)))
+
+
+def test_cffi_wheel_without_manylinux2014_tag_fails(tmp_path):
+    wheels = [
+        w.replace("manylinux2014_x86_64.manylinux_2_17_x86_64", "manylinux_2_28_x86_64") if w.startswith("cffi-") else w
+        for w in GOOD_WHEELS
+    ]
+    problems = check_package.check(make_package(tmp_path, wheels))
+    assert any("cffi" in p and "cp310" in p for p in problems)
+
+
+def test_not_a_zip_is_reported_not_raised(tmp_path):
+    path = tmp_path / "broken.zip"
+    path.write_bytes(b"not a zip")
+    assert any("not a valid zip" in p for p in check_package.check(path))
+
+
+def test_cli_exit_codes(tmp_path, capsys):
+    assert check_package.main([str(make_package(tmp_path, GOOD_WHEELS))]) == 0
+    assert "PACKAGE OK" in capsys.readouterr().out
+    assert check_package.main([str(make_package(tmp_path, GOOD_WHEELS[:-1]))]) == 1
+    assert "PACKAGE NOT OK" in capsys.readouterr().out
+    assert check_package.main([]) == 2

@@ -1,0 +1,10 @@
+{
+  "success": 1,
+  "data": {
+    "vm": {"on": 2, "off": 1, "cnt": 3},
+    "stg": {"ratio": "0.09", "itl": 2, "used": 575881084928, "total": 6109322543104, "ext": 1, "cnt": 3},
+    "cpu": {"ratio": "0.06", "used": "14318.61456", "total": "230400"},
+    "mem": {"ratio": "0.41", "used": 219902325555, "total": 536870912000},
+    "host": {"cnt": 2, "online": 2, "offline": 0}
+  }
+}

@@ -22,3 +22,14 @@ secrets/
 .DS_Store
 .idea/
 .vscode/
+
+# Local development
+.pytest_cache/
+simulator/.certs/
+secrets.json
+validation-output/
+*.log
+
+# dt-sdk build output
+build/
+extension/lib/

@@ -1,0 +1,538 @@
+import copy
+import importlib.util
+import json
+import re
+import zipfile
+from pathlib import Path
+from urllib.parse import urlparse
+
+import pytest
+
+import simulator.mock_api as mock_module
+from sangfor_hci.snmp import oids
+from simulator.mock_api import load_fixtures
+
+ROOT = Path(__file__).resolve().parents[2]
+_spec = importlib.util.spec_from_file_location("sangfor_probe", ROOT / "validation-kit" / "sangfor_probe.py")
+probe = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(probe)
+
+FAN = next(table for table in oids.TABLES if table.name == "fan")
+RAID = next(table for table in oids.TABLES if table.name == "raid")
+
+
+@pytest.fixture
+def fast_retries(monkeypatch):
+    monkeypatch.setattr("sangfor_hci.api.client.RETRY_BACKOFF_SECONDS", (0.0, 0.0))
+
+
+def _read_zip(path):
+    with zipfile.ZipFile(path) as bundle:
+        names = bundle.namelist()
+        members = {name: bundle.read(name).decode("utf-8") for name in names}
+    return names, members
+
+
+def _everything(names, members):
+    return "\n".join([*names, *members.values()])
+
+
+def test_redactor_is_consistent_and_keeps_oids():
+    redactor = probe.Redactor()
+    data = {
+        "host_list": [{"id": "host-00e0ec000a11", "ip": "10.0.0.11", "name": "node-a", "sn": "SN123456"}],
+        "description": "Host node-a (10.0.0.11) with MAC 00:e0:ec:00:0a:11 is fine",
+        "walk": {"1.3.6.1.4.1.35047.3.2.1.2.1.1.0": "0.12", "1.3.6.1.2.1.1.5.0": "node-a"},
+        "version": "SANGFOR aCloud 6.10.0_R2",
+        "store": "350014ee0aed9e86a_00e0ec000a11",
+    }
+    redactor.learn(data)
+    out = redactor.redact(data)
+    text = json.dumps(out)
+    for secret in ("10.0.0.11", "node-a", "00e0ec000a11", "00:e0:ec:00:0a:11", "SN123456", "350014ee0aed9e86a"):
+        assert secret not in text, secret
+    assert out["host_list"][0]["ip"] in out["description"]
+    assert out["host_list"][0]["name"] in out["description"]
+    assert "1.3.6.1.4.1.35047.3.2.1.2.1.1.0" in out["walk"]
+    assert out["walk"]["1.3.6.1.4.1.35047.3.2.1.2.1.1.0"] == "0.12"
+    assert out["version"] == "SANGFOR aCloud 6.10.0_R2"
+
+
+# Item 2: free-text patterns
+def test_redactor_text_redacts_emails_ipv6_fqdns_cisco_macs_and_wwns():
+    redactor = probe.Redactor()
+    source = (
+        "mail ops.team@acme.co.id; v6 2001:db8::8a2e:370:7334, fe80::1ff:fe23:4567:890a%eth0 and "
+        "2001:0db8:0000:0000:0000:ff00:0042:8329; host acme-prod-node1.acme.co.id; "
+        "mac 00e0.ec00.0a11; naa 5000c500a1b2c3d4 and 6000c29a1b2c3d4e5"
+    )
+    out = redactor.text(source)
+    for leaked in (
+        "ops.team", "acme.co.id", "2001:db8", "fe80::", "0db8", "8a2e", "acme-prod-node1", "00e0.ec00.0a11",
+        "5000c500a1b2c3d4", "6000c29a1b2c3d4e5",
+    ):
+        assert leaked not in out, leaked
+    assert re.findall(r"\bemail-\d{3}\b", out) == ["email-001"]
+    assert re.findall(r"\bfqdn-\d{3}\b", out) == ["fqdn-001"]
+    assert re.findall(r"\bipv6-\d{3}\b", out) == ["ipv6-001", "ipv6-002", "ipv6-003"]
+    assert re.findall(r"\bmac-\d{3}\b", out) == ["mac-001"]
+    assert re.findall(r"\bwwn-\d{3}\b", out) == ["wwn-001", "wwn-002"]
+    assert redactor.text("acme-prod-node1.acme.co.id") == "fqdn-001"
+    assert redactor.text("ACME-PROD-NODE1.ACME.CO.ID") == "fqdn-001"
+    for keep in (
+        "1.3.6.1.4.1.35047.3.2.1.2.16.1.4.1", "6.8.0", "SANGFOR aCloud 6.10.0_R2 Build20251020", "12:30:45",
+        "std::vector", "1234567890123456", "e.g. fine", "cpu_ratio", "50.0", "-3.4",
+    ):
+        assert redactor.text(keep) == keep, keep
+
+
+# Item 3: key matching, non-string values, dict keys, SNMP walk values
+def test_redactor_matches_serial_keys_by_token_whatever_the_value_type():
+    redactor = probe.Redactor()
+    data = {
+        "hostSN": 20481234, "serialNumber": "X9Z", "bios_uuid": "4c4c4544-0042", "BIOSVersion": "1.2.3",
+        "license-key": 12.5, "asset_tag": "T-1", "macAddr": "ab", "node_wwn": 77, "enabled": True, "sn": None,
+        "snapshot": "keep-me", "dns_server": "keep-too",
+    }
+    out = redactor.redact(data)
+    for key in ("hostSN", "serialNumber", "bios_uuid", "BIOSVersion", "license-key", "asset_tag", "macAddr", "node_wwn"):
+        assert isinstance(out[key], str) and re.fullmatch(r"[a-z]+-\d{3}", out[key]), (key, out[key])
+    text = json.dumps(out)
+    for leaked in ("20481234", "X9Z", "4c4c4544", "1.2.3", "12.5", "T-1", "\"ab\"", "77"):
+        assert leaked not in text, leaked
+    assert out["enabled"] is True and out["sn"] is None
+    assert out["snapshot"] == "keep-me" and out["dns_server"] == "keep-too"
+    assert redactor.redact({"hw.asset": "T-2"}) == {"fqdn-001": "asset-002"}  # dotted key: FQDN-like, split on '.'
+
+
+def test_redactor_learns_names_from_any_key_ending_in_name():
+    redactor = probe.Redactor()
+    redactor.learn({"cluster_name": "acme-hci", "detail": {"hostName": "hv01x"}, "datastoreName": "linux-acme"})
+    out = redactor.text("cluster acme-hci on hv01x runs linux-acme")
+    for leaked in ("acme-hci", "hv01x", "linux-acme"):
+        assert leaked not in out, leaked
+    assert re.fullmatch(r"cluster name-\d{3} on name-\d{3} runs name-\d{3}", out)
+
+
+def test_redactor_redacts_dict_keys_but_keeps_oids_and_meta_keys():
+    redactor = probe.Redactor()
+    redactor.learn({"name": "node-a"})
+    out = redactor.redact({
+        "10.0.0.5": 1, "node-a": {"x": 1}, "host-00e0ec000a11": 2, "ops@acme.co.id": 3,
+        "1.3.6.1.4.1.35047.3.2.1.1.0": "v", "api_checks": [], "status_values_seen": [], "cpu_ratio": "0.1",
+    })
+    keys = json.dumps(list(out))
+    for leaked in ("10.0.0.5", "node-a", "00e0ec000a11", "acme"):
+        assert leaked not in keys, leaked
+    for kept in ("1.3.6.1.4.1.35047.3.2.1.1.0", "api_checks", "status_values_seen", "cpu_ratio"):
+        assert kept in out, kept
+
+
+def test_redactor_snmp_walk_keeps_numbers_and_status_words_and_tokenizes_identifiers():
+    redactor = probe.Redactor()
+    redactor.learn_name("node-a")
+    fan_status = FAN.column_oid("4") + ".1"
+    raid_status = RAID.column_oid("5") + ".1"
+    raid_name = RAID.column_oid("3") + ".1"
+    record = {
+        "host_ip": "10.0.0.11",
+        "scalars": {oids.SYS_NAME: "node-a", oids.SYS_DESCR: "Linux node-a 5.10.0 SANGFOR aCloud",
+                    oids.VERSION: "6.10.0_R2"},
+        "walk": {
+            fan_status: "ok", raid_status: "Rebuild50pct", raid_name: "RAID1-sys",
+            f"{oids.ROOT}.2.1.2.1.7.1": "52", f"{oids.ROOT}.2.12.1.4.1": "-2.1",
+            f"{oids.ROOT}.2.5.1.2.2": "/sf/data", oids.BMC_IPMI_IP: "10.0.1.11", oids.BMC_VERSION: "3.45.1",
+            f"{oids.ROOT}.2.12.1.3.1": "eth4", f"{oids.ROOT}.2.18.1.4.1": "ab12cd34ef",
+            oids.VERSION: "6.10.0_R2",
+        },
+    }
+    out = redactor.redact(record)
+    walk = out["walk"]
+    assert walk[fan_status] == "ok" and walk[raid_status] == "Rebuild50pct"
+    assert walk[f"{oids.ROOT}.2.1.2.1.7.1"] == "52" and walk[f"{oids.ROOT}.2.12.1.4.1"] == "-2.1"
+    assert walk[f"{oids.ROOT}.2.5.1.2.2"] == "/sf/data" and walk[f"{oids.ROOT}.2.12.1.3.1"] == "eth4"
+    assert walk[oids.BMC_VERSION] == "3.45.1" and walk[oids.VERSION] == "6.10.0_R2"
+    assert re.fullmatch(r"id-\d{3}", walk[raid_name]) and re.fullmatch(r"id-\d{3}", walk[f"{oids.ROOT}.2.18.1.4.1"])
+    assert walk[oids.BMC_IPMI_IP].startswith("10.255.")
+    assert re.fullmatch(r"name-\d{3}", out["scalars"][oids.SYS_NAME])
+    assert out["scalars"][oids.VERSION] == "6.10.0_R2"
+    text = json.dumps(out)
+    for leaked in ("node-a", "RAID1-sys", "ab12cd34ef", "10.0.1.11", "10.0.0.11"):
+        assert leaked not in text, leaked
+
+
+# Item 8: name matching
+def test_redactor_names_are_case_insensitive_and_word_bounded():
+    redactor = probe.Redactor()
+    redactor.learn_name("vault")  # Fix 2: "node" is now a stop word, so a non-generic word tests the boundary
+    redactor.learn_name("ACME-Node1")
+    assert re.fullmatch(r"vaults and name-\d{3}", redactor.text("vaults and vault"))
+    assert re.fullmatch(r"name-\d{3}", redactor.text("acme-node1"))
+    assert redactor.text("acme-node1") == redactor.text("ACME-NODE1") == redactor.text("ACME-Node1")
+    assert redactor.text("acme-node12") == "acme-node12"
+    redactor.learn_name("nfs-backup")
+    assert redactor.text("nfs_backup") == redactor.text("NFS-backup") != "nfs_backup"
+
+
+def test_redactor_learns_two_char_names_only_from_name_keys():
+    redactor = probe.Redactor()
+    redactor.learn({"name": "db", "description": "zz", "cluster_name": "qq"})
+    out = redactor.text("db is up, dba and zz and qq")
+    assert re.fullmatch(r"name-\d{3} is up, dba and zz and qq", out), out
+
+
+def test_redactor_never_name_replaces_status_words_or_versions():
+    redactor = probe.Redactor()
+    redactor.learn({"name": "ok", "hostname": "optimal", "target": "6.10.0_R2"})
+    meta = {"status_values_seen": ["ok", "optimal"], "sangfor_versions": ["SANGFOR aCloud 6.10.0_R2"]}
+    assert redactor.redact(meta) == meta
+
+
+# End-to-end (Item 10: the simulator secrets and every learned name, IP and hostname are absent)
+def test_probe_end_to_end_against_simulator(mock_api, snmp_agents, tmp_path, monkeypatch):
+    base, state = mock_api
+    monkeypatch.setenv("SANGFOR_PASSWORD", "dtmon-pass")
+    monkeypatch.setenv("SANGFOR_SNMP_COMMUNITY", "sangfopub")
+    out = tmp_path / "probe.zip"
+    code = probe.main([
+        "--url", base, "--user", "dtmon",
+        "--snmp-version", "v2c", "--timeout", "2",
+        "--snmp-node", "10.0.0.11=127.0.0.1:11161",
+        "--snmp-node", "10.0.0.12=localhost:11163",
+        "--out", str(out),
+    ])
+    assert code == 0
+    assert all(request.startswith(("GET ", "POST /vapi/json/access/ticket")) for request in state.requests)
+    assert state.requests.count("POST /vapi/json/access/ticket") == 1
+    names, members = _read_zip(out)
+    assert {"meta.json", "api/overview.json", "api/host_list.json", "api/node_info.json", "api/alerts.json"} <= set(names)
+    assert len(names) == len(set(names))
+    everything = _everything(names, members)
+    meta = json.loads(members["meta.json"])
+    simulator_secrets = ("sangfopub", "dtmon-pass")
+    ips_and_hosts = ("10.0.0.11", "10.0.0.12", "10.0.1.11", "127.0.0.1", "localhost", "00e0ec000a11", "00e0ec000b12")
+    learned_names = (
+        "node-a", "node-b", "app-01", "app-02", "db-01", "grp-app", "local_a", "local_b", "nfs-backup", "admin@vtp",
+        "dtmon", "nfs_backup",
+    )
+    for secret in (*simulator_secrets, *ips_and_hosts, *learned_names):
+        assert secret not in everything, secret
+    assert all(check["ok"] for check in meta["api_checks"])
+    subtrees = sorted(node["has_private_subtree"] for node in meta["snmp_nodes"])
+    assert subtrees == [False, True]
+    assert {"optimal", "ok"} <= set(meta["status_values_seen"])
+    assert meta["sangfor_versions"]
+    assert "SANGFOR aCloud 6.10.0_R2 Build20251020" in meta["sangfor_versions"]
+    # Fix 2 item 1: guest OS types are discovery data, kept raw like versions.
+    assert '"osname": "linux-oracle"' in members["api/vms.json"]
+    assert '"osname": "linux-ubuntu"' in members["api/vms.json"]
+
+
+def test_probe_reports_failure_when_nothing_answers(tmp_path, monkeypatch):
+    monkeypatch.setenv("SANGFOR_PASSWORD", "x")
+    code = probe.main(["--url", "http://127.0.0.1:9", "--user", "dtmon", "--timeout", "1", "--out", str(tmp_path / "p.zip")])
+    assert code == 2
+    assert (tmp_path / "p.zip").exists()
+
+
+# Item 1: hostnames from inputs, TLS error text, bad --snmp-node entries
+def test_probe_redacts_input_hostnames_and_error_text(mock_api_tls, snmp_agents, tmp_path, monkeypatch):
+    base, _state, _pem = mock_api_tls
+    monkeypatch.setenv("SANGFOR_PASSWORD", "dtmon-pass")
+    monkeypatch.setenv("SANGFOR_SNMP_COMMUNITY", "sangfopub")
+    out = tmp_path / "p.zip"
+    code = probe.main([
+        "--url", base.replace("127.0.0.1", "localhost"), "--user", "dtmon",
+        "--snmp-version", "v2c", "--timeout", "2",
+        "--snmp-node", "10.0.0.11=localhost:11161",
+        "--snmp-node", "acme-hci-node9:entry",
+        "--out", str(out),
+    ])
+    assert code == 1
+    names, members = _read_zip(out)
+    everything = _everything(names, members).lower()
+    for leaked in ("localhost", "acme-hci-node9", "certificate", "self-signed", "self signed", "verify"):
+        assert leaked not in everything, leaked
+    meta = json.loads(members["meta.json"])
+    login = meta["api_checks"][0]
+    assert login["endpoint"] == "login" and login["ok"] is False and login["reason"] == "tls"
+    for check in meta["api_checks"]:
+        assert set(check) <= {"endpoint", "ok", "reason", "error", "http_status", "ms"}
+        assert re.fullmatch(r"[A-Za-z_]*", check.get("error", "")), check
+    assert len([name for name in names if name.startswith("snmp/")]) == 2
+    invalid = [node for node in meta["snmp_nodes"] if node.get("error") == "ConfigError"]
+    assert invalid == [{"node": "invalid-2", "error": "ConfigError",
+                        "detail": "snmp_nodes entry '<entry>' has an invalid port"}]
+
+
+# Item 4: no crash, always write the zip
+@pytest.mark.parametrize(
+    "argv, env, secrets",
+    [
+        (["--snmp-version", "v3", "--v3-user", "dtmon", "--snmp-node", "10.0.0.11=127.0.0.1:9"],
+         {"SANGFOR_SNMP_AUTH_KEY": "", "SANGFOR_SNMP_PRIV_KEY": ""}, ()),
+        (["--snmp-version", "v3", "--v3-user", "dtmon", "--snmp-node", "10.0.0.11=127.0.0.1:9"],
+         {"SANGFOR_SNMP_AUTH_KEY": "short1", "SANGFOR_SNMP_PRIV_KEY": "short2"}, ("short1", "short2")),
+        (["--snmp-version", "v2c", "--snmp-node", "10.0.0.11=no-such-host.invalid:161"],
+         {"SANGFOR_SNMP_COMMUNITY": "comm-secret"}, ("comm-secret", "no-such-host", "invalid")),
+        (["--url", "127.0.0.1:9", "--user", "dtmon"], {"SANGFOR_PASSWORD": "pw-secret"}, ("pw-secret", "127.0.0.1")),
+        (["--url", "http://127.0.0.1:9", "--user", "dtmon", "--ca-file", "/nonexistent/acme-ca.pem"],
+         {"SANGFOR_PASSWORD": "pw-secret"}, ("pw-secret", "acme-ca", "nonexistent")),
+    ],
+    ids=["v3-empty-key", "v3-short-key", "unresolvable-address", "url-without-scheme", "missing-ca-file"],
+)
+def test_probe_always_writes_the_zip(argv, env, secrets, tmp_path, monkeypatch, fast_retries):
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    out = tmp_path / "p.zip"
+    code = probe.main([*argv, "--timeout", "0.5", "--out", str(out)])
+    assert code != 0
+    names, members = _read_zip(out)
+    assert "meta.json" in names
+    meta = json.loads(members["meta.json"])
+    errors = [node.get("error") for node in meta["snmp_nodes"]] + [c.get("error") for c in meta["api_checks"]]
+    assert any(errors), meta
+    everything = _everything(names, members)
+    for secret in secrets:
+        assert secret not in everything, secret
+
+
+# Item 5: a single login attempt
+def test_probe_logs_in_once_and_skips_endpoints_when_login_fails(mock_api, tmp_path, monkeypatch):
+    base, state = mock_api
+    monkeypatch.setenv("SANGFOR_PASSWORD", "wrong-pass")
+    out = tmp_path / "p.zip"
+    code = probe.main(["--url", base, "--user", "dtmon", "--timeout", "2", "--out", str(out)])
+    assert code == 2
+    assert state.requests.count("POST /vapi/json/access/ticket") == 1
+    assert set(state.requests) <= {"GET /vapi/json/public_key", "POST /vapi/json/access/ticket"}
+    names, members = _read_zip(out)
+    meta = json.loads(members["meta.json"])
+    assert [(c["endpoint"], c["ok"], c["reason"]) for c in meta["api_checks"]] == [("login", False, "auth")]
+    assert "wrong-pass" not in _everything(names, members)
+
+
+def test_probe_does_not_retry_a_failed_login_per_endpoint(tmp_path, monkeypatch):
+    calls = []
+
+    def failing_login(self):
+        calls.append(1)
+        raise probe.SangforApiError("parse", "public_key response has no RSA modulus")
+
+    monkeypatch.setattr(probe.SangforApiClient, "login", failing_login)
+    monkeypatch.setenv("SANGFOR_PASSWORD", "x")
+    code = probe.main(["--url", "http://127.0.0.1:9", "--user", "dtmon", "--out", str(tmp_path / "p.zip")])
+    assert code == 2
+    assert len(calls) == 1
+
+
+# Item 6: README never shows secrets on the command line
+def test_readme_documents_prompt_and_no_literal_secrets():
+    readme = (ROOT / "validation-kit" / "README.md").read_text(encoding="utf-8")
+    assert not re.search(r"export\s+SANGFOR_\w+\s*=", readme)
+    assert "read -rs SANGFOR_PASSWORD && export SANGFOR_PASSWORD" in readme
+    assert "prompt" in readme.lower()
+    assert "six endpoints" not in readme
+
+
+# Item 9: no duplicate zip entries
+def test_probe_dedupes_repeated_snmp_nodes(tmp_path, monkeypatch):
+    monkeypatch.setenv("SANGFOR_SNMP_COMMUNITY", "sangfopub")
+    out = tmp_path / "p.zip"
+    node = "10.0.0.50=127.0.0.1:9"
+    code = probe.main(["--snmp-version", "v2c", "--timeout", "0.3", "--snmp-node", node, "--snmp-node", node,
+                       "--snmp-node", "10.0.0.50=127.0.0.1:10", "--out", str(out)])
+    assert code == 2
+    names, _members = _read_zip(out)
+    assert len(names) == len(set(names))
+    assert len([name for name in names if name.startswith("snmp/")]) == 2
+
+
+# ---- Fix 2 ----------------------------------------------------------------------------------------
+
+def _fixture_payload():
+    fixtures = load_fixtures()
+    return {name: copy.deepcopy(fixtures[name]["data"]) for name in ("overview", "host_list", "storelist", "vms", "alerts")}
+
+
+# Fix 2 item 1: common words are not learned as names; payload keys, enum values and api_checks survive
+def test_common_word_names_do_not_rewrite_keys_or_enum_values():
+    raw = _fixture_payload()
+    raw["vms"][0]["data"][0]["name"] = "data"
+    raw["vms"][0]["data"][1]["name"] = "HA"
+    raw["vms"][1]["name"] = "acme-app-01"
+    raw["vms"][1]["osname"] = "windows"
+    raw["storelist"]["local"][0]["name"] = "local"
+    raw["storelist"]["local"][1]["name"] = "fc"
+    raw["host_list"][0]["name"] = "storage"
+    redactor = probe.Redactor()
+    redactor.learn(raw)
+    out = redactor.redact(raw)
+    group = out["vms"][0]
+    assert isinstance(group["data"], list) and all("ha" in vm for vm in group["data"])
+    assert {"local", "fc", "nfs", "iscsi"} <= set(out["storelist"])
+    assert out["storelist"]["local"][0]["type"] == "local" and out["storelist"]["nfs"][0]["type"] == "nfs"
+    alarms = out["alerts"]["data"]
+    assert {alarm["object_type"] for alarm in alarms} == {"host", "vm", "storage"}
+    assert {alarm["otype"] for alarm in alarms} == {"Host", "VM", "Storage"}
+    assert "Storage private network abnormal" in {alarm["type"] for alarm in alarms}
+    assert out["vms"][1]["osname"] == "windows"
+    assert "acme-app-01" not in json.dumps(out)
+    assert re.fullmatch(r"name-\d{3}", out["vms"][1]["name"])
+
+
+def test_api_checks_values_are_written_raw():
+    redactor = probe.Redactor()
+    redactor.learn({"name": "auth", "data": [{"name": "login"}, {"name": "InvalidSchema"}, {"name": "alerts"}]})
+    meta = {"api_checks": [
+        {"endpoint": "login", "ok": True, "ms": 3},
+        {"endpoint": "alerts", "ok": False, "reason": "auth", "http_status": 403, "ms": 1},
+        {"endpoint": "vms", "ok": False, "reason": "error", "error": "InvalidSchema", "ms": 1},
+    ]}
+    assert redactor.redact(meta) == meta
+
+
+# Fix 2 item 2: per-endpoint auth failures do not abort discovery
+def _deny_gets(monkeypatch, status, paths=None):
+    original = mock_module.Handler.do_GET
+
+    def do_get(self):
+        path = urlparse(self.path).path
+        if path != "/vapi/json/public_key" and (paths is None or path in paths):
+            self.state.requests.append(f"GET {path}")
+            return self._send(status, {"success": 0, "status": status, "message": "denied"})
+        return original(self)
+
+    monkeypatch.setattr(mock_module.Handler, "do_GET", do_get)
+
+
+def test_probe_continues_past_a_forbidden_endpoint(mock_api, tmp_path, monkeypatch):
+    base, state = mock_api
+    _deny_gets(monkeypatch, 403, {"/vapi/json/log/alert/all"})
+    monkeypatch.setenv("SANGFOR_PASSWORD", "dtmon-pass")
+    out = tmp_path / "p.zip"
+    code = probe.main(["--url", base, "--user", "dtmon", "--timeout", "2", "--out", str(out)])
+    assert code == 1
+    names, members = _read_zip(out)
+    assert {"api/overview.json", "api/host_list.json", "api/storelist.json", "api/vms.json", "api/node_info.json"} <= set(names)
+    assert "api/alerts.json" not in names
+    meta = json.loads(members["meta.json"])
+    failed = [(c["endpoint"], c["reason"], c.get("http_status")) for c in meta["api_checks"] if not c["ok"]]
+    assert failed == [("alerts", "auth", None)] or failed == [("alerts", "auth", 403)]
+    assert len(json.loads(members["api/node_info.json"])) == 2
+    assert state.requests.count("POST /vapi/json/access/ticket") <= 3
+
+
+def test_probe_stops_after_two_consecutive_auth_failures(mock_api, tmp_path, monkeypatch):
+    base, state = mock_api
+    _deny_gets(monkeypatch, 401)
+    monkeypatch.setenv("SANGFOR_PASSWORD", "dtmon-pass")
+    out = tmp_path / "p.zip"
+    code = probe.main(["--url", base, "--user", "dtmon", "--timeout", "2", "--out", str(out)])
+    assert code == 2
+    assert state.requests.count("POST /vapi/json/access/ticket") <= 3
+    data_gets = {r for r in state.requests if r.startswith("GET ") and r != "GET /vapi/json/public_key"}
+    assert data_gets == {"GET /vapi/json/index/overview", "GET /vapi/json/index/host_list"}
+    _names, members = _read_zip(out)
+    meta = json.loads(members["meta.json"])
+    assert [(c["endpoint"], c["ok"]) for c in meta["api_checks"]] == [
+        ("login", True), ("overview", False), ("host_list", False)
+    ]
+
+
+def test_readme_documents_ticket_posts_on_server_errors():
+    readme = (ROOT / "validation-kit" / "README.md").read_text(encoding="utf-8")
+    assert "5xx" in readme and "exactly 1 ticket POST" in readme and "lockout" in readme
+    assert "3 ticket POSTs" not in readme  # the client no longer resends the ticket POST
+
+
+# Fix 2 item 3: URL userinfo, path and query never reach the zip
+def test_api_url_keeps_only_scheme_redacted_host_and_port(tmp_path, monkeypatch):
+    def failing_login(self):
+        raise probe.SangforApiError("timeout", "POST /vapi/json/access/ticket failed: ConnectTimeout")
+
+    monkeypatch.setattr(probe.SangforApiClient, "login", failing_login)
+    monkeypatch.setenv("SANGFOR_PASSWORD", "x")
+    out = tmp_path / "p.zip"
+    probe.main(["--url", "https://dtmon:S3cret!@hci.acme.local:8443/vapi?token=abc123", "--out", str(out)])
+    names, members = _read_zip(out)
+    meta = json.loads(members["meta.json"])
+    assert re.fullmatch(r"https://[a-z]+-\d{3}:8443", meta["api_url"]), meta["api_url"]
+    everything = _everything(names, members)
+    for leaked in ("dtmon", "S3cret", "acme", "token", "abc123", "vapi?"):
+        assert leaked not in everything, leaked
+
+
+# Fix 2 item 4: under-redacted serials
+def test_redactor_tokenizes_chassis_and_service_tags_and_serial_phrases():
+    redactor = probe.Redactor()
+    out = redactor.redact({"chassis_no": 20481234, "service_tag": "7XK2Q3", "serviceTag": "8YL3R4"})
+    assert all(re.fullmatch(r"[a-z]+-\d{3}", value) for value in out.values()), out
+    for source, secret in (
+        ("disk serial number: WD-WCC4N1234567 failed", "WD-WCC4N1234567"),
+        ("Disk SN ZA1B2C3D is degraded", "ZA1B2C3D"),
+        ("S/N#ABCD1234", "ABCD1234"),
+    ):
+        text = redactor.text(source)
+        assert secret not in text and re.search(r"\bserial-\d{3}\b", text), text
+    assert redactor.text("serial port down") == "serial port down"
+
+
+def test_redactor_tokenizes_long_digit_values_in_unknown_walk_columns():
+    redactor = probe.Redactor()
+    fs_size = next(t for t in oids.TABLES if t.name == "fs").column_oid("3") + ".1"
+    unknown = f"{oids.ROOT}.2.99.1.4.1"
+    out = redactor.redact({"walk": {unknown: "123456789012", fs_size: "800000000000", f"{oids.ROOT}.2.99.1.5.1": "5400"}})
+    assert re.fullmatch(r"serial-\d{3}", out["walk"][unknown])
+    assert out["walk"][fs_size] == "800000000000" and out["walk"][f"{oids.ROOT}.2.99.1.5.1"] == "5400"
+
+
+# Fix 2 item 5: misleading over-redaction
+def test_redactor_does_not_redact_invalid_ipv4_firmware_or_file_names():
+    redactor = probe.Redactor()
+    assert redactor.text("value 4.40.30.00 and 300.1.1.1") == "value 4.40.30.00 and 300.1.1.1"
+    assert redactor.text("10.0.0.5") == "10.255.0.1"
+    for name in ("disk.qcow2", "vm-disk.img", "backup.tar.gz", "sangfor.log", "conf.json", "a.vmdk", "boot.iso"):
+        assert redactor.text(name) == name, name
+    assert re.fullmatch(r"fqdn-\d{3}\.tar\.gz", redactor.text("acme.local.tar.gz"))
+    out = redactor.redact({"firmware": "HCI6.8.0.EN", "bmc_fw": "fw.acme.local", "version": "HCI6.8.0.EN @ 10.0.0.5"})
+    assert out["firmware"] == "HCI6.8.0.EN" and out["bmc_fw"] == "fw.acme.local"
+    assert out["version"] == "HCI6.8.0.EN @ 10.255.0.1"
+    assert redactor.text("HCI6.8.0.EN") != "HCI6.8.0.EN"  # free text still gets the FQDN rule
+
+
+# Fix 2 item 6: version values get every rule except FQDN
+def test_version_values_still_get_name_and_address_rules():
+    redactor = probe.Redactor()
+    redactor.learn_name("acme-node1")
+    out = redactor.redact({"kernel_version": "5.10.0-acme-node1", "os_version": "6.8 ops@acme.co.id 00:e0:ec:00:0a:11"})
+    assert re.fullmatch(r"5\.10\.0-name-\d{3}", out["kernel_version"]), out
+    assert re.fullmatch(r"6\.8 email-\d{3} mac-\d{3}", out["os_version"]), out
+
+
+# Fix 2 item 7: dict-key collisions keep every entry
+def test_redacted_dict_keys_never_collide():
+    redactor = probe.Redactor()
+    redactor.learn_name("node-a")
+    out = redactor.redact({"node-a": 1, "NODE-A": 2, "node_a": 3})
+    assert sorted(out.values()) == [1, 2, 3]
+    assert list(out) == ["name-001", "name-001#2", "name-001#3"]
+
+
+# Fix 2 item 8: operator edge cases
+def test_config_error_detail_is_scrubbed_when_the_entry_has_quotes(tmp_path, monkeypatch):
+    monkeypatch.setenv("SANGFOR_SNMP_COMMUNITY", "sangfopub")
+    out = tmp_path / "p.zip"
+    probe.main(["--snmp-version", "v2c", "--snmp-node", "it's-acme'x:po'rt", "--out", str(out)])
+    names, members = _read_zip(out)
+    meta = json.loads(members["meta.json"])
+    assert meta["snmp_nodes"][0]["detail"] == "snmp_nodes entry '<entry>' has an invalid port"
+    everything = _everything(names, members)
+    for leaked in ("it's", "acme", "po'rt", "rt'"):
+        assert leaked not in everything, leaked
+
+
+def test_short_snmp_node_hostnames_are_learned():
+    redactor = probe.Redactor()
+    probe.learn_inputs(redactor, probe.parse_args(["--snmp-node", "10.0.0.11=hv:161", "--snmp-node", "10.0.0.12=h:161"]))
+    assert re.fullmatch(r"name-\d{3} is up", redactor.text("hv is up"))

@@ -105,7 +105,7 @@ Entities are built from metric dimensions. Every metric carries `sangfor.cluster
 |---|---|---|---|
 | `sangfor_hci:cluster` | `{sangfor.cluster}` | `{sangfor.cluster}` | — |
 | `sangfor_hci:host` | `{sangfor.cluster}-{sangfor.host.ip}` | `{sangfor.cluster} / {sangfor.host.name}` | CHILD_OF cluster |
-| `sangfor_hci:vm` | `{sangfor.cluster}-{sangfor.vm.id}` | `{sangfor.cluster} / {sangfor.vm.name} ({sangfor.vm.id})` | RUNS_ON host |
+| `sangfor_hci:vm` | `{sangfor.cluster}-{sangfor.vm.id}` | `{sangfor.cluster} / {sangfor.vm.name} ({sangfor.vm.id})` | RUNS_ON host (VM lines also carry `sangfor.host.ip` and `sangfor.host.name`, and the host rule includes the `vm.` prefix, because generic topology links only entities on the same metric line) |
 | `sangfor_hci:datastore` | `{sangfor.cluster}-{sangfor.datastore.id}` | `{sangfor.cluster} / {sangfor.datastore.name}` | CHILD_OF cluster |
 
 Hosts are keyed by IP because it is the only identifier that both the API (`host_list[].ip`) and SNMP (the polled address) know. That makes `api`, `snmp` and `both` produce the same host entity. Display names include the cluster so that names are unique, which event attachment needs (§5.4).
@@ -195,7 +195,7 @@ The OK/not-OK string values for fan and RAID status are unknown. Until the valid
 | Key | Unit | Dimensions |
 |---|---|---|
 | `ext.poll.duration` | ms | `source` (api/snmp), `target` (endpoint or node) |
-| `ext.poll.errors` | errors in this cycle (gauge) | `source`, `target`, `reason` (auth / timeout / http / parse / snmp) |
+| `ext.poll.errors` | errors in this cycle (gauge) | `source`, `target`, `reason` (auth / tls / forbidden / unreachable / timeout / http / parse / network / snmp / unexpected) |
 
 ### 5.3 Overlap rule in `both` mode
 
@@ -269,9 +269,12 @@ The SNMP subtree probe (`GETNEXT` on `R`) runs at startup and every hour per nod
 
 | Failure | Behaviour |
 |---|---|
-| Login fails (wrong credentials, RSA error) | API path skipped this cycle, `errors{reason=auth}`, extension status shows a warning with the HTTP status. Never retried in a tight loop. |
-| 401 mid-cycle | One re-login, then retry the request once. |
-| Timeout / 5xx | Up to 2 retries with backoff (1 s, 3 s), then skip that endpoint only. |
+| Login fails (wrong credentials, RSA error) | The ticket POST is sent once and never resent. Every ticket-POST failure is `reason=auth` except timeout, TLS, unreachable and HTTP 5xx, which keep their reason. Every ticket-POST failure starts a back-off (`auth`, HTTP 5xx, read timeout, and a connection or TLS error, which requests also raises after the body was sent), except a connect timeout, which proves no password was sent. The back-off is (5, 10, 20, 40, then 60 minutes, reset by a successful login); until it expires no POST is sent and calls fail with "login suppressed after a failed login; next attempt in N s". Logins are serialized, so concurrent requests cause one POST. Any login failure aborts the API path for that cycle: at most one ticket POST per cycle. |
+| 401 mid-cycle | One re-login, then retry the request once. A failing re-login starts the back-off above. |
+| Read timeout / 5xx on a GET | Up to 2 retries with backoff (1 s, 3 s), then skip that endpoint only. Worst case 3 × timeout + 4 s per request. |
+| API unreachable (connection refused, connect timeout) | Not retried; `reason=unreachable` aborts the API path for that cycle, so the SNMP fallback runs within the interval. |
+| Other request error (invalid URL, broken encoding, redirects) | `reason=network`, class name only; that endpoint is skipped. |
+| Unexpected exception in the API path | `reason=unexpected`, class name only; SNMP still runs. |
 | One endpoint or one node fails | Others continue. Metrics for the failed part are simply absent for that cycle. |
 | Unparseable value | That data point is skipped and logged at debug level. **No synthetic zeros, ever.** |
 | SNMP subtree missing | `hardware` disabled for that node (§7). In `snmp` mode, host CPU and memory also come from the private subtree, so such a node only reports self-monitoring (poll duration and errors) and the extension status names the node. |
@@ -337,12 +340,13 @@ These are design-time estimates. Hardware series counts depend on how many CPUs,
 | Q1 | Are `diskread`, `diskwrite`, `netin` and `netout` per-second rates or cumulative counters, and in which unit? | Reported as gauges named without units. The unit is set in metadata after validation. |
 | Q2 | Datastore `status`: hex bit masks or binary-digit notation? | Hex masks as written in the spec. |
 | Q3 | SNMP value encoding: strings or integers, and the ratio scale. | Parse with regex `([0-9.]+)`. The OIDs the Zabbix template multiplies by 100 (host CPU, memory and disk use rate, datastore use rate) are marked as ratios in `oids.py` and converted to percent. All other OIDs are taken as-is. |
-| Q4 | Fan and RAID status string values. | Change-from-baseline rule (§5.2). |
+| Q4 | Fan and RAID status string values. | Known tokens first (ok/normal/optimal → OK; failed/degraded/error → not OK); unknown strings use the change-from-baseline rule and are reported by the validation kit. |
 | Q5 | Which SNMP versions answer on the target HCI release, and whether the v2c community is fixed. | Default v3, with v2c `sangfopub` allowed. |
 | Q6 | Ticket lifetime. | Re-login on 401, and proactively every 10 minutes. |
 | Q7 | Minimum Managed cluster version for Python extensions, generic topology and screens. | `minDynatraceVersion: "1.285"`. |
 | Q8 | Is the alarm `status` field "active vs resolved"? | One-shot events with a 15-minute timeout. |
 | Q9 | Does the 2022 API spec still match current HCI releases (6.8 to 6.11)? | Code against the spec. Missing fields are tolerated (§8). |
+| Q10 | Are SNMP filesystem sizes GB (10⁹) or GiB (1024³)? | GiB. |
 
 ## 12. Risks
 

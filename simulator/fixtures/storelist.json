@@ -1,0 +1,24 @@
+{
+  "success": 1,
+  "data": {
+    "virtual_storage": [],
+    "fc": [],
+    "iscsi": [],
+    "local": [
+      {"hosts": "1", "host_cnt": "1/1", "used_ratio": "35.57", "status": 1, "read_cnt": "0.33", "shared": 0,
+       "id": "350014ee0aed9e86a_00e0ec000a11", "alert": "0", "active": 1, "write_ratio": "509777.92",
+       "name": "local_a", "urgent": 0, "total": 1997159792640, "read_ratio": "1361.92", "avail": 1286765281280,
+       "write_cnt": "44.67", "used": 710394511360, "type": "local", "nodes": "host-00e0ec000a11"},
+      {"hosts": "1", "host_cnt": "1/1", "used_ratio": "2.39", "status": 1, "read_cnt": 0, "shared": 0,
+       "id": "350014ee0aee30c88_00e0ec000b12", "alert": "0", "active": 1, "write_ratio": 139264,
+       "name": "local_b", "urgent": 0, "total": 1997159792640, "read_ratio": 0, "avail": 1949327949824,
+       "write_cnt": "10.67", "used": 47831842816, "type": "local", "nodes": "host-00e0ec000b12"}
+    ],
+    "nfs": [
+      {"hosts": "2", "host_cnt": "2/2", "used_ratio": "25.00", "status": 1, "read_cnt": "1.5", "shared": 1,
+       "id": "nfs_backup", "alert": "0", "active": 1, "write_ratio": "2048", "name": "nfs-backup", "urgent": 0,
+       "total": 4000000000000, "read_ratio": "1024", "avail": 3000000000000, "write_cnt": "2.5",
+       "used": 1000000000000, "type": "nfs", "nodes": "host-00e0ec000a11,host-00e0ec000b12"}
+    ]
+  }
+}
