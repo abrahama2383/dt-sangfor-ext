@@ -294,6 +294,7 @@ screens:
           - {key: cluster_list, type: ENTITIES_LIST}
     chartsCards:
       - key: cluster_usage
+        mode: NORMAL
         displayName: Cluster usage
         numberOfVisibleCharts: 4
         charts:
@@ -319,14 +320,16 @@ screens:
                 - metricSelector: sangfor.hci.cluster.vms:splitBy("state")
     entitiesListCards:
       - key: cluster_list
+        displayIcons: true
         displayName: Sangfor HCI clusters
-        entitySelectorTemplate: type("sangfor_hci:cluster")
+        entitySelectorTemplate: type("sangfor_hci:cluster"),$(entityConditions)
         pageSize: 10
         displayCharts: false
         enableDetailsExpandability: true
         numberOfVisibleCharts: 0
         charts: []
       - key: cluster_hosts
+        displayIcons: true
         displayName: Hosts
         entitySelectorTemplate: type("sangfor_hci:host"),fromRelationships.isChildOf($(entityConditions))
         pageSize: 10
@@ -345,6 +348,7 @@ screens:
               metrics:
                 - metricSelector: sangfor.hci.host.memory.usage:splitBy("dt.entity.sangfor_hci:host")
       - key: cluster_datastores
+        displayIcons: true
         displayName: Datastores
         entitySelectorTemplate: type("sangfor_hci:datastore"),fromRelationships.isChildOf($(entityConditions))
         pageSize: 10
@@ -374,6 +378,7 @@ screens:
           - {key: host_list, type: ENTITIES_LIST}
     chartsCards:
       - key: host_usage
+        mode: NORMAL
         displayName: Utilization
         numberOfVisibleCharts: 3
         charts:
@@ -393,6 +398,7 @@ screens:
               metrics:
                 - metricSelector: sangfor.hci.host.io.usage:splitBy("dt.entity.sangfor_hci:host")
       - key: host_hardware
+        mode: NORMAL
         displayName: Hardware health (SNMP)
         numberOfVisibleCharts: 4
         charts:
@@ -418,8 +424,9 @@ screens:
                 - metricSelector: sangfor.hci.hw.ssd.life:splitBy("sangfor.ssd")
     entitiesListCards:
       - key: host_list
+        displayIcons: true
         displayName: Sangfor HCI hosts
-        entitySelectorTemplate: type("sangfor_hci:host")
+        entitySelectorTemplate: type("sangfor_hci:host"),$(entityConditions)
         pageSize: 15
         displayCharts: true
         enableDetailsExpandability: true
@@ -436,6 +443,7 @@ screens:
               metrics:
                 - metricSelector: sangfor.hci.host.memory.usage:splitBy("dt.entity.sangfor_hci:host")
       - key: host_vms
+        displayIcons: true
         displayName: VMs on this host
         entitySelectorTemplate: type("sangfor_hci:vm"),fromRelationships.runsOn($(entityConditions))
         pageSize: 10
@@ -463,6 +471,7 @@ screens:
           - {key: vm_list, type: ENTITIES_LIST}
     chartsCards:
       - key: vm_usage
+        mode: NORMAL
         displayName: Utilization
         numberOfVisibleCharts: 4
         charts:
@@ -490,8 +499,9 @@ screens:
                 - metricSelector: sangfor.hci.vm.net.out:splitBy("dt.entity.sangfor_hci:vm")
     entitiesListCards:
       - key: vm_list
+        displayIcons: true
         displayName: Sangfor HCI VMs
-        entitySelectorTemplate: type("sangfor_hci:vm")
+        entitySelectorTemplate: type("sangfor_hci:vm"),$(entityConditions)
         pageSize: 20
         displayCharts: true
         enableDetailsExpandability: true
@@ -522,6 +532,7 @@ screens:
           - {key: datastore_list, type: ENTITIES_LIST}
     chartsCards:
       - key: datastore_usage
+        mode: NORMAL
         displayName: Capacity and performance
         numberOfVisibleCharts: 3
         charts:
@@ -544,8 +555,9 @@ screens:
                 - metricSelector: sangfor.hci.datastore.write.throughput:splitBy("dt.entity.sangfor_hci:datastore")
     entitiesListCards:
       - key: datastore_list
+        displayIcons: true
         displayName: Sangfor HCI datastores
-        entitySelectorTemplate: type("sangfor_hci:datastore")
+        entitySelectorTemplate: type("sangfor_hci:datastore"),$(entityConditions)
         pageSize: 15
         displayCharts: true
         enableDetailsExpandability: true
